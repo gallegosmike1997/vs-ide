@@ -1,0 +1,333 @@
+﻿@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-[#050505] text-white overflow-hidden;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.ambient-bg {
+  background: radial-gradient(circle at 10% 0%, #1a1a1a, #050505);
+  animation: ambientMove 30s infinite alternate ease-in-out;
+}
+
+@keyframes ambientMove {
+  0% { background-position: 0% 0%; }
+  100% { background-position: 100% 100%; }
+}
+
+.glass {
+  @apply bg-glass backdrop-blur-sm rounded-xl border border-white/10;
+}
+.ai-hint-glyph {
+  background-color: #4f8cff;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+"
+
+Write-Host "
+=== 4) Regenerate MonacoEditor.tsx (no template literals) ===
+"
+
+@"
+import { useEffect, useRef } from 'react';
+import Editor from '@monaco-editor/react';
+import { callLLM } from '../aiClient';
+
+export default function MonacoEditor({ value, language, onChange }) {
+  const editorRef = useRef(null);
+
+  async function analyze(code) {
+    const prompt =
+      'Analyze this code and return hints in the format: LINE: <number> - <hint>. ' +
+      'Also include hover explanations, code smells, and suggested fixes.\n\n' +
+      code;
+
+    const result = await callLLM(prompt);
+    const lines = result.split('\n').filter((l) => l.includes('LINE:'));
+
+    const hints = lines.map((line) => {
+      const parts = line.split('-');
+      if (parts.length < 2) return null;
+      const lineNum = parseInt(parts[0].replace('LINE:', '').trim(), 10);
+      const text = parts[1].trim();
+      return { line: lineNum, text };
+    }).filter(Boolean);
+
+    const monaco = editorRef.current._monaco;
+    const model = editorRef.current.getModel();
+
+    const decorations = hints.map((hint) => ({
+      range: new monaco.Range(hint.line, 1, hint.line, 1),
+      options: {
+        isWholeLine: true,
+        glyphMarginClassName: 'ai-hint-glyph',
+        glyphMarginHoverMessage: { value: hint.text }
+      }
+    }));
+
+    editorRef.current.deltaDecorations([], decorations);
+  }
+
+  async function autoFix(code) {
+    const prompt =
+      'Fix this code and return ONLY the corrected code:\n\n' + code;
+
+    const fixed = await callLLM(prompt);
+
+    if (fixed && fixed.length > 0) {
+      editorRef.current.setValue(fixed);
+    }
+  }
+
+  async function showDiff(code) {
+    const prompt =
+      'Refactor this code and return a unified diff (patch format):\n\n' + code;
+
+    const diff = await callLLM(prompt);
+    console.log('AI Diff:\n', diff);
+  }
+
+  return (
+    <Editor
+      height='100%'
+      theme='vs-dark'
+      language={language}
+      value={value}
+      onMount={(editor) => {
+        editorRef.current = editor;
+        analyze(value);
+      }}
+      onChange={(v) => {
+        onChange(v);
+        analyze(v || '');
+      }}
+      options={{
+        fontSize: 14,
+        minimap: { enabled: true },
+        glyphMargin: true,
+        automaticLayout: true
+      }}
+    />
+  );
+}
+.ai-hint-glyph {
+  background-color: #4f8cff;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.ai-inline-annotation {
+  background-color: rgba(79, 140, 255, 0.12);
+  border-bottom: 1px dashed rgba(79, 140, 255, 0.8);
+}
+"
+
+Write-Host "
+=== 6) Create AIChatSidebar.tsx ===
+"
+
+@"
+import { useState } from 'react';
+import { callLLM } from '../aiClient';
+
+export default function AIChatSidebar() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+
+  async function send() {
+    if (!input.trim()) return;
+    const userMsg = { role: 'user', content: input };
+    const answer = await callLLM(input);
+    const aiMsg = { role: 'assistant', content: answer };
+    setMessages([...messages, userMsg, aiMsg]);
+    setInput('');
+  }
+
+  return (
+    <div className='glass h-full w-full p-3 flex flex-col'>
+      <h2 className='text-sm font-semibold mb-2'>AI Chat</h2>
+      <div className='flex-1 overflow-auto text-xs mb-2 space-y-1'>
+        {messages.map((m, i) => (
+          <div key={i}>
+            <span className='font-semibold'>{m.role === 'user' ? 'You: ' : 'AI: '}</span>
+            <span>{m.content}</span>
+          </div>
+        ))}
+      </div>
+      <div className='flex gap-2'>
+        <input
+          className='flex-1 p-2 bg-black/40 rounded-md text-xs'
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder='Ask AI anything...'
+        />
+        <button
+          className='px-3 py-1 text-xs rounded-md bg-white/10'
+          onClick={send}
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+.ai-hint-glyph {
+  background-color: #4f8cff;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.ai-inline-annotation {
+  background-color: rgba(79, 140, 255, 0.12);
+  border-bottom: 1px dashed rgba(79, 140, 255, 0.8);
+}
+"
+
+Write-Host "
+=== 6) Create AIChatSidebar.tsx ===
+"
+@"
+import { useState } from 'react';
+import { callLLM } from '../aiClient';
+
+export default function AIChatSidebar() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+
+  async function send() {
+    if (!input.trim()) return;
+    const userMsg = { role: 'user', content: input };
+    const answer = await callLLM(input);
+    const aiMsg = { role: 'assistant', content: answer };
+    setMessages([...messages, userMsg, aiMsg]);
+    setInput('');
+  }
+
+  return (
+    <div className='glass h-full w-full p-3 flex flex-col'>
+      <h2 className='text-sm font-semibold mb-2'>AI Chat</h2>
+      <div className='flex-1 overflow-auto text-xs mb-2 space-y-1'>
+        {messages.map((m, i) => (
+          <div key={i}>
+            <span className='font-semibold'>{m.role === 'user' ? 'You: ' : 'AI: '}</span>
+            <span>{m.content}</span>
+          </div>
+        ))}
+      </div>
+      <div className='flex gap-2'>
+        <input
+          className='flex-1 p-2 bg-black/40 rounded-md text-xs'
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder='Ask AI anything...'
+        />
+        <button
+          className='px-3 py-1 text-xs rounded-md bg-white/10'
+          onClick={send}
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+.ai-hint-glyph {
+  background-color: #4f8cff;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.ai-inline-annotation {
+  background-color: rgba(79, 140, 255, 0.12);
+  border-bottom: 1px dashed rgba(79, 140, 255, 0.8);
+}
+"
+
+Write-Host "
+=== 6) Create AIChatSidebar.tsx ===
+"
+Set-Content -Encoding utf8 .\src\components\AIChatSidebar.tsx @"
+import { useState } from 'react';
+import { callLLM } from '../aiClient';
+
+export default function AIChatSidebar() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+
+  async function send() {
+    if (!input.trim()) return;
+    const userMsg = { role: 'user', content: input };
+    const answer = await callLLM(input);
+    const aiMsg = { role: 'assistant', content: answer };
+    setMessages([...messages, userMsg, aiMsg]);
+    setInput('');
+  }
+
+  return (
+    <div className='glass h-full w-full p-3 flex flex-col'>
+      <h2 className='text-sm font-semibold mb-2'>AI Chat</h2>
+      <div className='flex-1 overflow-auto text-xs mb-2 space-y-1'>
+        {messages.map((m, i) => (
+          <div key={i}>
+            <span className='font-semibold'>{m.role === 'user' ? 'You: ' : 'AI: '}</span>
+            <span>{m.content}</span>
+          </div>
+        ))}
+      </div>
+      <div className='flex gap-2'>
+        <input
+          className='flex-1 p-2 bg-black/40 rounded-md text-xs'
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder='Ask AI anything...'
+        />
+        <button
+          className='px-3 py-1 text-xs rounded-md bg-white/10'
+          onClick={send}
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+.ai-hint-glyph {
+  background-color: #4f8cff;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.ai-inline-annotation {
+  background-color: rgba(79, 140, 255, 0.12);
+  border-bottom: 1px dashed rgba(79, 140, 255, 0.8);
+}
+.ai-hint-glyph {
+  background-color: #4f8cff;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.ai-inline-annotation {
+  background-color: rgba(79, 140, 255, 0.12);
+  border-bottom: 1px dashed rgba(79, 140, 255, 0.8);
+}
+.ai-hint-glyph {
+  background-color: #4f8cff;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.ai-inline-annotation {
+  background-color: rgba(79, 140, 255, 0.12);
+  border-bottom: 1px dashed rgba(79, 140, 255, 0.8);
+}
