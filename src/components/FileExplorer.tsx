@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import * as ScrollArea from '@radix-ui/react-scroll-area';
 
 type FileNode = {
@@ -26,7 +26,7 @@ function Node({ node, onOpen }: { node: FileNode; onOpen: (path: string) => void
           className='cursor-pointer text-sm font-semibold'
           onClick={() => setOpen(!open)}
         >
-          {open ? '📂' : '📁'} {node.name}
+          {open ? '??' : '??'} {node.name}
         </div>
         {open && node.children && (
           <div className='ml-4 mt-1'>
@@ -44,7 +44,7 @@ function Node({ node, onOpen }: { node: FileNode; onOpen: (path: string) => void
       className='cursor-pointer text-sm ml-4'
       onClick={() => onOpen(node.path)}
     >
-      📄 {node.name}
+      ?? {node.name}
     </div>
   );
 }

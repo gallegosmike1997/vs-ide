@@ -1,4 +1,4 @@
-﻿import * as Tabs from '@radix-ui/react-tabs';
+import * as Tabs from '@radix-ui/react-tabs';
 
 type TabDef = {
   id: string;

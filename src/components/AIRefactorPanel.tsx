@@ -1,4 +1,4 @@
-ï»¿type Props = {
+type Props = {
   code: string;
 };
 
@@ -13,12 +13,12 @@ export default function AIRefactorPanel({ code }: Props) {
     <div className='glass h-full w-full p-3'>
       <h2 className='text-sm font-semibold mb-2'>AI Refactor Suggestions</h2>
       <p className='text-xs opacity-70 mb-2'>
-        (Mocked for now â€” wire to your local LLM later.)
+        (Mocked for now — wire to your local LLM later.)
       </p>
       <ul className='text-sm space-y-1'>
         {suggestions.map((s, i) => (
           <li key={i} className='flex gap-2'>
-            <span>â€¢</span>
+            <span>•</span>
             <span>{s}</span>
           </li>
         ))}

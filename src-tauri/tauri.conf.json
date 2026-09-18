@@ -1,6 +1,6 @@
 {
-  "identifier": "vs-ide",
-  "productName": "vs-ide",
+  "identifier": "vs_ide",
+  "productName": "vs_ide",
   "version": "0.1.0",
 
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "vs-ide",
+        "title": "vs_ide",
         "width": 1200,
         "height": 800,
         "resizable": true
