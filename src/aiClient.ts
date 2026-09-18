@@ -1,4 +1,4 @@
-const LLM_ENDPOINT = "http://localhost:1234";
+﻿const LLM_ENDPOINT = "http://localhost:1234";
 const MODEL_NAME = "your-model-name";
 
 export async function callLLM(prompt: string): Promise<string> {

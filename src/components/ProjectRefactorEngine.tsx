@@ -1,9 +1,7 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { callLLM } from "../aiClient";
 
-type FileInfo = { path: string; content: string };
-
-export default function ProjectRefactorEngine({ files }: { files: FileInfo[] }) {
+export default function ProjectRefactorEngine({ files }) {
   const [result, setResult] = useState("");
 
   async function runRefactor() {
@@ -22,10 +20,7 @@ export default function ProjectRefactorEngine({ files }: { files: FileInfo[] }) 
   return (
     <div className="glass h-full w-full p-3">
       <h2 className="text-sm font-semibold mb-2">Project-wide Refactor</h2>
-      <button
-        className="px-3 py-1 text-xs rounded-md bg-white/10 mb-2"
-        onClick={runRefactor}
-      >
+      <button className="px-3 py-1 text-xs rounded-md bg-white/10 mb-2" onClick={runRefactor}>
         Analyze Project
       </button>
       <pre className="text-xs whitespace-pre-wrap">

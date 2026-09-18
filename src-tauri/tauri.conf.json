@@ -1,18 +1,16 @@
-{
-  "identifier": "vs_ide",
-  "productName": "vs_ide",
+﻿{
+  "identifier": "vs-ide",
+  "productName": "vs-ide",
   "version": "0.1.0",
-
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:1421"
   },
-
   "app": {
     "windows": [
       {
-        "title": "vs_ide",
+        "title": "vs-ide",
         "width": 1200,
         "height": 800,
         "resizable": true

@@ -1,17 +1,15 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { callLLM } from "../aiClient";
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
-
 export default function AIChatSidebar() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
 
   async function send() {
     if (!input.trim()) return;
-    const userMsg: ChatMessage = { role: "user", content: input };
+    const userMsg = { role: "user", content: input };
     const answer = await callLLM(input);
-    const aiMsg: ChatMessage = { role: "assistant", content: answer };
+    const aiMsg = { role: "assistant", content: answer };
     setMessages([...messages, userMsg, aiMsg]);
     setInput("");
   }
@@ -34,10 +32,7 @@ export default function AIChatSidebar() {
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask AI anything..."
         />
-        <button
-          className="px-3 py-1 text-xs rounded-md bg-white/10"
-          onClick={send}
-        >
+        <button className="px-3 py-1 text-xs rounded-md bg.white/10" onClick={send}>
           Send
         </button>
       </div>
