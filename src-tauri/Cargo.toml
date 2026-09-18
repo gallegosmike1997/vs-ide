@@ -1,25 +1,11 @@
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [package]
-name = "C:\Users\Michael\vs-ide\src-tauri\src\lib.rs"
+name = "vs_ide"
 version = "0.1.0"
-description = "A custom offline Visual Studio Code IDE/Remote VS:CODE-like IDE w/Full offline Chat Agent integration. Built using Tauri and Rust, designed by Michael Gallegos."
-authors = ["Michael Gallegos"]
-repository = "https://github.com/gallegosmike1997/vs_ide"
 edition = "2024"
-rust-version = "1.85.0"
-
-[lib]
-name = "app_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
-serde_json = { version = "1.0" }
-serde = { version = "1.0", features = ["derive"] }
-log = { version = "0.4", features = ["max_level_debug", "release_max_level_info"] }
 tauri = { version = "2.11.5" }
 tauri-build = { version = "2.6.3" }
-tauri-plugin-log = { version = "2.1.0" }
 
 [build-dependencies]
 tauri-build = { version = "2.6.3" }
