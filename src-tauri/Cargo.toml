@@ -1,11 +1,11 @@
 [package]
-name = "vs-ide"
+name = "vs_ide"
 version = "0.1.0"
 description = "A Tauri App"
 authors = ["Michael Gallegos"]
 license = ""
 repository = ""
-edition = "2026"
+edition = "2024"
 rust-version = "1.77.2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

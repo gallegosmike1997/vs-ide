@@ -1,23 +1,22 @@
 {
-  "package": {
-    "productName": "vs-ide",
-    "version": "0.1.0"
+  "identifier": "vs-ide",
+  "productName": "vs-ide",
+  "version": "0.1.0",
+
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1421"
   },
-  "tauri": {
-    "allowlist": {
-      "all": true
-    },
+
+  "app": {
     "windows": [
       {
-        "label": "main",
-        "url": "http://localhost:1421",
-        "fullscreen": false,
+        "title": "vs-ide",
+        "width": 1200,
+        "height": 800,
         "resizable": true
       }
-    ],
-    "bundle": {
-      "active": true,
-      "targets": ["msi"]
-    }
+    ]
   }
 }
