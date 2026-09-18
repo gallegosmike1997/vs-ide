@@ -1,11 +1,15 @@
-﻿[package]
+[package]
 name = "vs_ide"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+[lib]
+name = "vs_ide"
+path = "src/lib.rs"
 
 [dependencies]
-tauri = { version = "2.11.5" }
-tauri-build = { version = "2.6.3" }
+tauri = { version = "2.11.5", features = [] }
+yoke-derive = "=0.8.2"
 
 [build-dependencies]
-tauri-build = { version = "2.6.3" }
+tauri-build = { version = "2.6.3", features = [] }
