@@ -1,8 +1,11 @@
 import { Bell, GitBranch, XCircle, CheckCircle2, WifiOff, Wifi } from "lucide-react";
 import type { Toast } from "../store";
 import { useLLMConfig, useLLMStatus } from "../aiClient";
-type Props = { language: string; problems: number; toasts: Toast[]; onDismiss: (id: number) => void; onOpenProblems: () => void; line: number; col: number };
-export default function StatusBar({ language, problems, toasts, onDismiss, onOpenProblems, line, col }: Props) {
+type Props = {
+  language: string; problems: number; toasts: Toast[]; onDismiss: (id: number) => void;
+  onOpenProblems: () => void; onOpenSettings: () => void; line: number; col: number;
+};
+export default function StatusBar({ language, problems, toasts, onDismiss, onOpenProblems, onOpenSettings, line, col }: Props) {
   const llm = useLLMStatus();
   const [cfg] = useLLMConfig();
   const short = cfg.baseUrl.replace(/^https?:\/\//, "").replace(/\/v1$/, "");
@@ -23,7 +26,9 @@ export default function StatusBar({ language, problems, toasts, onDismiss, onOpe
         <span className="status-item">Ln {line}, Col {col}</span>
         <span style={{ flex: 1 }} />
         <span className="status-item">{language}</span>
-        <span className="status-item" title={(cfg.model || "(no model)") + " @ " + cfg.baseUrl}>{llm === "online" ? <Wifi size={12} color="#34d399" /> : <WifiOff size={12} color="#ff5d5d" />} {cfg.provider} · {short} · {cfg.model || "no model"}</span>
+        <span className="status-item clickable" onClick={onOpenSettings} title={llm === "signin" ? "Sign in to Puter (free) — click to open LLM settings" : (cfg.model || "(no model)") + " @ " + cfg.baseUrl}>
+          {llm === "online" ? <Wifi size={12} color="#34d399" /> : llm === "signin" ? <Wifi size={12} color="#febc2e" /> : <WifiOff size={12} color="#ff5d5d" />} {cfg.provider} · {llm === "signin" ? "sign in needed" : short} · {cfg.model || "no model"}
+        </span>
         <span className="status-item">UTF-8</span>
       </div>
     </>

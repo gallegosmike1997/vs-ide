@@ -3,12 +3,13 @@ import Editor, { type OnMount, type OnChange } from "@monaco-editor/react";
 import { callLLM } from "../aiClient";
 import type { Problem } from "./ProblemsPanel";
 type Props = {
-  value: string; language: string; fontSize: number;
+  value: string; language: string; fontSize: number; wordWrap: boolean;
   onChange: (v: string) => void;
   onCursor: (line: number, col: number) => void;
   onProblems: (p: Problem[]) => void;
   gotoLine: number | null; onGotoDone: () => void;
   findSignal?: number;
+  editSignal?: { n: number; cmd: string } | null;
 };
 function localChecks(code: string): Problem[] {
   const out: Problem[] = [];
@@ -28,7 +29,7 @@ function localChecks(code: string): Problem[] {
   if (oP !== cP) out.push({ line: lines.length, message: "Paren imbalance: " + oP + " vs " + cP + ".", severity: "error", source: "local" });
   return out.slice(0, 40);
 }
-export default function MonacoEditor({ value, language, fontSize, onChange, onCursor, onProblems, gotoLine, onGotoDone, findSignal }: Props) {
+export default function MonacoEditor({ value, language, fontSize, wordWrap, onChange, onCursor, onProblems, gotoLine, onGotoDone, findSignal, editSignal }: Props) {
   const ref = useRef<any>(null);
   const t = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDeco = useRef<string[]>([]);
@@ -78,12 +79,31 @@ export default function MonacoEditor({ value, language, fontSize, onChange, onCu
   useEffect(() => {
     if (findSignal && ref.current) { ref.current.getAction("actions.find")?.run(); }
   }, [findSignal]);
+  useEffect(() => {
+    const ed = ref.current;
+    if (!editSignal || !ed) return;
+    const c = editSignal.cmd;
+    try {
+      ed.focus();
+      const run = (id: string) => { const a = ed.getAction(id); if (a) { void a.run(); return true; } return false; };
+      if (c === "undo") ed.getModel()?.undo();
+      else if (c === "redo") ed.getModel()?.redo();
+      else if (c === "cut") run("editor.action.clipboardCutAction");
+      else if (c === "copy") run("editor.action.clipboardCopyAction");
+      else if (c === "paste") run("editor.action.clipboardPasteAction");
+      else if (c === "select-all") run("editor.action.selectAll");
+      else if (c === "format") run("editor.action.formatDocument");
+      else if (c === "comment") run("editor.action.commentLine");
+      else if (c === "fold") run("editor.foldAll");
+      else if (c === "unfold") run("editor.unfoldAll");
+    } catch (e) { console.warn("[edit]", e); }
+  }, [editSignal]);
   return (
     <div className="glass" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", padding: 8 }}>
       <Editor
         height="100%" theme="vs-dark" language={language} value={value}
         onMount={mount} onChange={change}
-        options={{ fontSize, minimap: { enabled: true, scale: 1 }, automaticLayout: true, glyphMargin: true, padding: { top: 12 }, scrollBeyondLastLine: false, smoothScrolling: true, cursorSmoothCaretAnimation: "on", renderLineHighlight: "all", bracketPairColorization: { enabled: true } as any, fontLigatures: true, fontFamily: "JetBrains Mono, Cascadia Code, Menlo, monospace" }}
+        options={{ fontSize, wordWrap: wordWrap ? "on" : "off", minimap: { enabled: true, scale: 1 }, automaticLayout: true, glyphMargin: true, padding: { top: 12 }, scrollBeyondLastLine: false, smoothScrolling: true, cursorSmoothCaretAnimation: "on", renderLineHighlight: "all", bracketPairColorization: { enabled: true } as any, fontLigatures: true, fontFamily: "JetBrains Mono, Cascadia Code, Menlo, monospace" }}
       />
     </div>
   );

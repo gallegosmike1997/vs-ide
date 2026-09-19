@@ -1,12 +1,17 @@
-import { useEffect, useRef, useState } from "react";
-import { Copy, SendHorizonal, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Copy, SendHorizonal, Trash2, Wand2 } from "lucide-react";
 import { callLLM, useLLMCall } from "../aiClient";
 import { Markdown, extractCodeBlocks } from "./Markdown";
+import { EDIT_PROTOCOL, parseAiEdits, type AiEdit } from "../aiEdits";
 type Msg = { role: "user" | "ai"; text: string };
-export default function AIChatSidebar({ code, onToast }: { code: string; onToast: (t: string, b?: string) => void }) {
-  const [msgs, setMsgs] = useState<Msg[]>([{ role: "ai", text: "Hi! I'm wired to your local LM Studio. Ask about the open file, or try “explain this file”, “find bugs”, “write tests”." }]);
+export default function AIChatSidebar({ code, file, onToast, onPlan }: {
+  code: string; file?: string; onToast: (t: string, b?: string) => void;
+  onPlan?: (reply: string, edits: AiEdit[], task?: string) => void;
+}) {
+  const [msgs, setMsgs] = useState<Msg[]>([{ role: "ai", text: "Hi! Ask about the open file — or say what to change and press **Apply changes** to write it straight into the tabs." }]);
   const [input, setInput] = useState("");
   const { loading, run } = useLLMCall();
+  const editCounts = useMemo(() => msgs.map((m) => (m.role === "ai" ? parseAiEdits(m.text, file).length : 0)), [msgs, file]);
   const scroll = useRef<HTMLDivElement | null>(null);
   useEffect(() => { scroll.current?.scrollTo({ top: 999999 }); }, [msgs, loading]);
   async function send(prefill?: string) {
@@ -14,7 +19,7 @@ export default function AIChatSidebar({ code, onToast }: { code: string; onToast
     if (!q || loading) return;
     setInput("");
     setMsgs((m) => [...m, { role: "user", text: q }]);
-    const prompt = `You are a senior engineer inside an IDE. Active file:\n\`\`\`\n${code.slice(0, 5000)}\n\`\`\`\nUser: ${q}\nAnswer concisely with markdown. Include runnable code blocks when useful.`;
+    const prompt = `You are a senior engineer inside an IDE. Active file (${file || "untitled"}):\n\`\`\`\n${code.slice(0, 8000)}\n\`\`\`\nUser: ${q}\nAnswer concisely with markdown. Include runnable code blocks when useful.\n\n${EDIT_PROTOCOL}`;
     const ans = await run(prompt);
     setMsgs((m) => [...m, { role: "ai", text: ans }]);
   }
@@ -32,6 +37,13 @@ export default function AIChatSidebar({ code, onToast }: { code: string; onToast
         {msgs.map((m, i) => (
           <div key={i} className={m.role === "user" ? "msg msg-user" : "msg msg-ai"}>
             {m.role === "ai" ? <Markdown text={m.text} /> : m.text}
+            {editCounts[i] > 0 && onPlan && (
+              <div style={{ marginTop: 8 }}>
+                <button className="btn btn-sm btn-primary" onClick={() => onPlan(m.text, parseAiEdits(m.text, file), "AI chat")}>
+                  <Wand2 size={12} /> Apply changes ({editCounts[i]})
+                </button>
+              </div>
+            )}
           </div>
         ))}
         {loading && <div className="msg msg-ai"><span className="typing"><i /><i /><i /></span></div>}

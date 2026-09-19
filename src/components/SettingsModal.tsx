@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Clock, Loader2, Plug, RefreshCw, Trash2, Wifi, WifiOff, X } from "lucide-react";
-import { PROVIDER_PRESETS, checkLLM, listModels, saveLLMConfig } from "../aiClient";
+import { Clock, CloudLightning, Loader2, LogIn, Plug, RefreshCw, Trash2, Wifi, WifiOff, X } from "lucide-react";
+import { PROVIDER_GROUPS, PROVIDER_PRESETS, activateFreeCloud, checkLLM, connectPuterNow, getLLMConfig, isPuterToken, listModels, puterAuthState, saveLLMConfig } from "../aiClient";
 import { useLLMConfig, useLLMStatus, type LLMProvider } from "../aiClient";
-export default function SettingsModal({ open, onClose, fontSize, setFontSize, onToast }: {
+export default function SettingsModal({ open, onClose, fontSize, setFontSize, onToast, initialTab }: {
   open: boolean; onClose: () => void; fontSize: number; setFontSize: (n: number) => void;
-  onToast: (t: string, b?: string) => void;
+  onToast: (t: string, b?: string) => void; initialTab?: "llm" | "editor" | "keys";
 }) {
   const [llm, setLlm] = useLLMConfig();
   const status = useLLMStatus();
@@ -13,7 +13,7 @@ export default function SettingsModal({ open, onClose, fontSize, setFontSize, on
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<"llm" | "editor" | "keys">("llm");
   const first = useRef<HTMLInputElement | null>(null);
-  useEffect(() => { if (open) { setDraft(llm); setTab("llm"); setTimeout(() => first.current?.focus(), 60); } }, [open]);
+  useEffect(() => { if (open) { setDraft(llm); setTab(initialTab || "llm"); setTimeout(() => first.current?.focus(), 60); } }, [open, initialTab]);
   if (!open) return null;
   const preset = PROVIDER_PRESETS[draft.provider];
   const dirty = JSON.stringify(draft) !== JSON.stringify(llm);
@@ -44,6 +44,25 @@ export default function SettingsModal({ open, onClose, fontSize, setFontSize, on
     onToast("Settings saved", draft.provider + " -> " + (draft.model || "(no model)"));
     onClose();
   }
+  async function goFree() {
+    setBusy(true);
+    onToast("Looking for a model…", "trying your local servers, then the free cloud");
+    const r = await activateFreeCloud();
+    setDraft(getLLMConfig());
+    setModels(await listModels().catch(() => []));
+    setBusy(false);
+    if (r.ok) onToast("LLM is online", r.provider + " → " + r.model);
+    else if (r.needsSignIn) onToast("One more step", "Press 'Sign in to Puter' below (free account, no API key)");
+    else onToast("Still offline", r.detail);
+  }
+  async function signInPuter() {
+    setBusy(true);
+    const r = await connectPuterNow();
+    setDraft(getLLMConfig());
+    setModels(await listModels().catch(() => []));
+    setBusy(false);
+    onToast(r.ok ? "Signed in to Puter" : "Sign-in not completed", r.ok ? r.model + " is ready" : r.detail);
+  }
   return (
     <div className="overlay" onClick={onClose}>
       <div className="glass modal" style={{ width: "min(640px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
@@ -65,17 +84,67 @@ export default function SettingsModal({ open, onClose, fontSize, setFontSize, on
         </div>
         <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: "66vh", overflowY: "auto" }}>
           {tab === "llm" && (<div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <label style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700 }}>PROVIDER</label>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {(Object.keys(PROVIDER_PRESETS) as LLMProvider[]).map((p) => (
-                <button key={p} className={"btn btn-sm" + (draft.provider === p ? " btn-primary" : "")} onClick={() => pickProvider(p)}>{PROVIDER_PRESETS[p].label}</button>
-              ))}
-            </div>
+                        <button className="btn btn-sm btn-primary" disabled={busy} onClick={goFree} style={{ alignSelf: "flex-start" }}>
+              {busy ? <Loader2 size={13} className="spin" /> : <CloudLightning size={13} />} Get me online (auto / free cloud)
+            </button>
+            {draft.provider === "puter" && status !== "online" && (
+              <div className="card" style={{ display: "flex", alignItems: "center", gap: 10, borderColor: "var(--border-strong)" }}>
+                <div style={{ flex: 1, fontSize: 12 }}>
+                  <b>Puter needs a one-time free sign-in.</b> No credit card, no API key — your own free monthly allowance covers the AI calls.
+                </div>
+                <button className="btn btn-sm btn-primary" disabled={busy} onClick={signInPuter}>
+                  {busy ? <Loader2 size={13} className="spin" /> : <LogIn size={13} />} Sign in to Puter
+                </button>
+              </div>
+            )}
+            {draft.provider === "puter" && status === "online" && puterAuthState() === "signed-in" && (
+              <div className="card" style={{ fontSize: 12 }}>
+                {isPuterToken(draft.apiKey) ? <>Using your <b>Puter auth token</b> — no sign-in popup needed.</> : <>Signed in to Puter</>} Press <b>Refresh models</b> to swap between gpt-5-nano, claude, gemini and more.
+              </div>
+            )}
+            {PROVIDER_GROUPS.map((g) => (
+              <div key={g.title} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label style={{ fontSize: 11.5, color: "var(--text-2)", fontWeight: 700, letterSpacing: 0.03 }}>
+                  {g.title.toUpperCase()} <span style={{ fontWeight: 500 }}>· {g.hint}</span>
+                </label>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {g.ids.map((p) => (
+                    <button key={p} className={"btn btn-sm" + (draft.provider === p ? " btn-primary" : "")} onClick={() => pickProvider(p)} title={PROVIDER_PRESETS[p].hint}>
+                      {PROVIDER_PRESETS[p].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
             <div className="card" style={{ fontSize: 12 }}><Plug size={12} style={{ marginRight: 6 }} />{preset.hint}</div>
-            <label style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700 }}>BASE URL (.../v1)</label>
+            <label style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700 }}>BASE URL</label>
             <input ref={first} className="input" value={draft.baseUrl} onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })} spellCheck={false} />
-            <label style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700 }}>API KEY {(draft.provider === "openai") ? "(required)" : "(if needed)"}</label>
-            <input className="input" type="password" value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} placeholder="sk-..." autoComplete="off" />
+            {preset.needsKey ? (
+              <>
+                <label style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700 }}>
+                  API KEY (required)
+                  {preset.keyUrl && <a href={preset.keyUrl} target="_blank" rel="noreferrer" style={{ marginLeft: 8, fontWeight: 500 }}>get a key ↗</a>}
+                </label>
+                <input className="input" type="password" value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} placeholder={preset.keyLabel || "sk-..."} autoComplete="off" spellCheck={false} />
+              </>
+            ) : preset.keyOptional ? (
+              <>
+                <label style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700 }}>
+                  PUTER AUTH TOKEN (optional)
+                  <span style={{ marginLeft: 8, fontWeight: 500 }}>paste one and the app never asks you to sign in</span>
+                </label>
+                <input className="input" type="password" value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} placeholder={preset.keyLabel || "eyJhbGciOi… (JWT)"} autoComplete="off" spellCheck={false} />
+                <div className="card" style={{ fontSize: 12 }}>
+                  {isPuterToken(draft.apiKey)
+                    ? "Token detected — calls go straight to api.puter.com over HTTPS (no SDK, no popup), billed to your own free Puter allowance."
+                    : "No token? Press 'Sign in to Puter' instead — same free allowance, one popup on first run."}
+                </div>
+              </>
+            ) : (
+              <div className="card" style={{ fontSize: 12 }}>
+                No API key needed for <b>{preset.label}</b>{preset.kind === "free" ? " — it is a public free tier, so you can chat right away." : "."}
+              </div>
+            )}
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button className="btn btn-sm" disabled={busy} onClick={test}>{busy ? <Loader2 size={13} className="spin" /> : <Plug size={13} />} Test</button>
               <button className="btn btn-sm" disabled={busy} onClick={refreshModels}>{busy ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />} Refresh models</button>

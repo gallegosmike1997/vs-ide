@@ -5,7 +5,8 @@ export type Activity = "explorer" | "search" | "chat" | "refactor" | "debug" | "
 export type DockTab = "terminal" | "actions" | "problems" | "output" | "debug";
 export type MenuAction =
   | "new-file" | "open-file" | "open-folder" | "open-repo" | "save" | "save-all" | "close-tab" | "close-all"
-  | "palette" | "goto-line" | "find" | "toggle-theme" | "toggle-terminal" | "toggle-debug"
+  | "palette" | "goto-line" | "find" | "toggle-theme" | "toggle-terminal" | "toggle-debug" | "toggle-output" | "toggle-problems" | "toggle-actions"
+  | "undo" | "redo" | "cut" | "copy" | "paste" | "select-all" | "format" | "comment" | "fold" | "unfold" | "wordwrap"
   | "explain" | "fix" | "tests" | "settings" | "shortcuts" | "about";
 export function langFromName(name: string): string {
   const n = name.toLowerCase();
