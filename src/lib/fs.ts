@@ -22,6 +22,7 @@ function pickFiles(acceptFolder = false): Promise<File[]> {
 }
 
 const TEXT_EXT = /\.(tsx?|jsx?|mjs|cjs|json|md|markdown|txt|py|rs|go|java|cs|css|scss|html|xml|yml|yaml|toml|ini|sh|sql|vue|svelte)$/i;
+export { TEXT_EXT };
 const MAX_FILE_BYTES = 400 * 1024;
 const MAX_FILES = 60;
 

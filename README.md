@@ -47,6 +47,18 @@ Protocol, for reference:
 {"edits":[{"file":"App.tsx","action":"patch","search":"  return a - b;","replace":"  return a + b;"}]}
 ```
 
+## Real workspaces (writes to disk)
+
+In the desktop app, **File → Add Folder…** opens a *workspace*: a native folder picker, the tree read from disk (skipping `node_modules`, `.git`, `target`, `dist`), and every tab backed by a real file. From then on:
+
+- **Ctrl+S / Save / Save All** write through to disk.
+- **AI Apply** writes the reviewed changes straight to disk; **Undo** removes files the agent created and restores the previous bytes of everything it touched. Disk and buffers revert together.
+- New files created by the agent (`create` edits) are written under the workspace root, parent folders included.
+
+Security model: the webview never gets blanket file access. A Rust command (`grant_workspace_scope`) grants the fs scope for **exactly the folder you picked**, a TS-side guard refuses any absolute path outside it, and the capability file allows only read/write/mkdir/stat/remove — no broad `$HOME/**` grant. Closing without a workspace (or the browser dev server) keeps the old in-memory behaviour.
+
+`src/` layout after the refactor: `lib/` holds the pure layers (`aiClient`, `aiEdits`, `fs`, `workspace`), `components/` the UI, `store.ts` the app state primitives.
+
 ## Puter auth token (no sign-in popup)
 
 A Puter **auth token** is a JWT (`eyJ…`, three dot-separated segments). With one, the IDE skips `puter.js`/the popup entirely and talks to `https://api.puter.com` directly:

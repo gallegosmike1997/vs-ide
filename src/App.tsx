@@ -22,11 +22,12 @@ import LlmSetupGuide from "./components/LlmSetupGuide";
 import ShortcutsModal from "./components/ShortcutsModal";
 import AboutModal from "./components/AboutModal";
 import type { Problem } from "./components/ProblemsPanel";
-import { langFromName, useTabs, useTheme, useToasts } from "./store";
+import { langFromName, useTabs, useTheme, useToasts, STARTER_FILES } from "./store";
 import type { Activity, DockTab, MenuAction, TabDef } from "./store";
 import { describeParseFailure, planEdits, runAgentEdit, summarizePlan, type AiEdit, type EditPlanItem } from "./lib/aiEdits";
 import { downloadTab, importRepoFromGitHub, openFilePicker, openFolderPicker, runJsPreview } from "./lib/fs";
 import { autoDetectLLM, activateFreeCloud, checkLLM, useLLMCall } from "./lib/aiClient";
+import { absPathFor, closeWorkspace, currentRoot, isDesktop, pickWorkspace, readWorkspaceTree, removeWorkspaceFile, writeWorkspaceFile } from "./lib/workspace";
 import { ChevronRight, Play, Save } from "lucide-react";
 
 export default function App() {
@@ -42,6 +43,7 @@ export default function App() {
   const [repoOpen, setRepoOpen] = useState(false);
   const [repoBusy, setRepoBusy] = useState(false);
   const [folderName, setFolderName] = useState<string | null>(null);
+  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState(14);
   const [settingsTab, setSettingsTab] = useState<"llm" | "editor" | "keys">("llm");
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -74,6 +76,7 @@ export default function App() {
   const [planApplied, setPlanApplied] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const undoRef = useRef<TabDef[] | null>(null);
+  const undoDiskRef = useRef<{ created: string[]; modified: { abs: string; text: string }[] } | null>(null);
 
   /** Parse edits out of a model answer and open the review dialog. */
   function showPlan(reply: string, edits: AiEdit[], task = ""): EditPlanItem[] | null {
@@ -91,38 +94,75 @@ export default function App() {
     return usable;
   }
 
-  /** Writes the chosen edits into the tabs (one undo snapshot per apply). */
-  function applyItems(items: EditPlanItem[]) {
+  /** Writes the chosen edits into the tabs — and through to disk when a workspace folder is open. */
+  async function applyItems(items: EditPlanItem[]) {
     if (!items.length) return;
     undoRef.current = tabs.map((t) => ({ ...t }));
     const byId = new Map(items.filter((i) => i.tabId).map((i) => [i.tabId as string, i]));
     const stamp = Date.now();
+    const rootNow = currentRoot();
     const created: TabDef[] = items.filter((i) => !i.tabId).map((i, n) => ({
       id: "ai-" + stamp + "-" + n, label: i.label, language: langFromName(i.label), content: i.after, dirty: true, path: i.label,
+      absPath: rootNow ? absPathFor(i.label) : undefined,
     }));
     setTabs((ts) => {
       const next = ts.map((t) => { const it = byId.get(t.id); return it ? { ...t, content: it.after, dirty: true } : t; });
       created.forEach((c) => next.push(c));
       return next;
     });
+    // Disk writes (workspace only). Files we fail to write stay dirty in the UI.
+    const writes: { tabId: string | null; abs: string; text: string }[] = [];
+    const modifiedDisk: { abs: string; text: string }[] = [];
+    if (rootNow && isDesktop()) {
+      for (const it of items) {
+        const t = it.tabId ? tabs.find((x) => x.id === it.tabId) : undefined;
+        const c = it.tabId ? undefined : created.find((x) => x.label === it.label);
+        const abs = t?.absPath ?? c?.absPath;
+        if (!abs) continue;
+        writes.push({ tabId: it.tabId ?? c?.id ?? null, abs, text: it.after });
+        if (t?.absPath) modifiedDisk.push({ abs, text: it.before });
+      }
+    }
+    const writtenIds: string[] = [];
+    const failed: string[] = [];
+    for (const w of writes) {
+      try { await writeWorkspaceFile(w.abs, w.text); if (w.tabId) writtenIds.push(w.tabId); }
+      catch (e: any) { failed.push(w.abs + " — " + String(e?.message || e).slice(0, 120)); }
+    }
+    if (writtenIds.length) setTabs((ts) => ts.map((t) => (writtenIds.includes(t.id) ? { ...t, dirty: false } : t)));
+    undoDiskRef.current = { created: writes.filter((w) => !w.tabId).map((w) => w.abs), modified: modifiedDisk };
     const stats = summarizePlan(items);
     const focus = created[0]?.id || items.find((i) => i.tabId)?.tabId;
     if (focus) setActiveId(focus);
     setPlanApplied(true);
     setDock("output");
-    setOutput("AI applied " + stats.label + "\n\n" + items.map((i) => (i.tabId ? "  ~ " : "  + ") + i.label + "  +" + i.added + " −" + i.removed).join("\n"));
-    toast("AI wrote " + stats.files + " file(s)", stats.label + " — check the tabs, Ctrl+S saves.");
+    const onDisk = rootNow && isDesktop();
+    const diskNote = onDisk ? (writes.length ? " · disk: " + (writes.length - failed.length) + "/" + writes.length + " written" : "") : " · in buffers (open a workspace folder to write to disk)";
+    setOutput("AI applied " + stats.label + diskNote + "\n\n" + items.map((i) => (i.tabId ? "  ~ " : "  + ") + i.label + "  +" + i.added + " −" + i.removed).join("\n") + (failed.length ? "\n\nFAILED:\n" + failed.join("\n") : ""));
+    toast("AI wrote " + stats.files + " file(s)", stats.label + (onDisk ? " — on disk" : " — in buffers only"));
   }
 
-  function undoApply() {
+  async function undoApply() {
     const snap = undoRef.current;
-    if (!snap) { toast("Nothing to undo"); return; }
-    setTabs(snap);
-    if (!snap.some((t) => t.id === activeId)) setActiveId(snap[0]?.id || activeId);
+    const disk = undoDiskRef.current;
+    if (!snap && !disk) { toast("Nothing to undo"); return; }
+    // Disk first: remove files the agent created, then restore previous bytes.
+    if (disk && isDesktop()) {
+      for (const abs of disk.created) { try { await removeWorkspaceFile(abs); } catch { /* already gone */ } }
+      for (const m of disk.modified) {
+        try { await writeWorkspaceFile(m.abs, m.text); }
+        catch (e: any) { toastErr("Undo failed on disk", m.abs + " — " + String(e?.message || e).slice(0, 120)); }
+      }
+    }
+    if (snap) {
+      setTabs(snap);
+      if (!snap.some((t) => t.id === activeId)) setActiveId(snap[0]?.id || activeId);
+    }
     undoRef.current = null;
+    undoDiskRef.current = null;
     setPlanApplied(false);
     setPlanOpen(false);
-    toast("Reverted the AI change", "The files are back to how they were.");
+    toast("Reverted the AI change", disk && isDesktop() ? "Disk and buffers are back to how they were." : "The files are back to how they were.");
   }
 
   /** One-click agent run: the model edits the active file, then you review (or auto-apply). */
@@ -191,7 +231,45 @@ export default function App() {
       toast("Added " + files.length + " file(s)", files[0].label);
     } catch (e: any) { toastErr("Add file failed", String(e?.message || e)); }
   }
+  /** Writes a tab to disk when it belongs to the workspace; false = buffer-only tab. */
+  async function saveTabToDisk(tab: TabDef): Promise<boolean> {
+    if (!tab.absPath || !isDesktop()) return false;
+    try { await writeWorkspaceFile(tab.absPath, tab.content); return true; }
+    catch (e: any) { toastErr("Save failed", tab.label + " — " + String(e?.message || e).slice(0, 160)); return false; }
+  }
+  async function doSaveActive() {
+    save(activeId);
+    if (await saveTabToDisk(active)) { toast("Saved to disk", active.label); return; }
+    downloadTab(active);
+    toast("Saved " + active.label);
+  }
+  async function doSaveAll() {
+    const disk = tabs.filter((t) => t.absPath);
+    let ok = 0;
+    for (const t of disk) if (await saveTabToDisk(t)) ok++;
+    saveAll();
+    toast(disk.length ? "Saved " + ok + "/" + disk.length + " file(s) to disk" : "All files saved");
+  }
   async function doAddFolder() {
+    // Desktop: a real workspace folder (native dialog + fs scope) replaces the tab set.
+    if (isDesktop()) {
+      try {
+        const root = await pickWorkspace();
+        if (!root) return;
+        setWorkspaceRoot(root);
+        const files = await readWorkspaceTree();
+        const stamp = Date.now();
+        const next: TabDef[] = files.map((f, n) => ({ id: "disk-" + stamp + "-" + n, label: f.label, language: langFromName(f.label), content: f.content, dirty: false, path: f.path, absPath: f.absPath }));
+        setTabs(next);
+        if (next.length) setActiveId(next[0].id);
+        setFolderName(root.split(/[\\/]/).filter(Boolean).pop() || root);
+        setActivity("explorer");
+        setDock("output");
+        setOutput("Workspace: " + root + "\n" + files.length + " file(s) loaded.\nAI edits and Ctrl+S now write to disk inside this folder.");
+        toast(files.length ? "Workspace open" : "Empty workspace", root + (files.length ? " · " + files.length + " file(s)" : " · no text files found"));
+      } catch (e: any) { toastErr("Open folder failed", String(e?.message || e).slice(0, 200)); }
+      return;
+    }
     try {
       const { tabs: files, folder } = await openFolderPicker();
       if (!files.length) { toast("No text files", "Folder had no importable text files."); return; }
@@ -200,6 +278,17 @@ export default function App() {
       setActivity("explorer");
       toast("Added folder: " + folder, files.length + " file(s)");
     } catch (e: any) { toastErr("Add folder failed", String(e?.message || e)); }
+  }
+  async function doCloseWorkspace() {
+    await closeWorkspace();
+    setWorkspaceRoot(null);
+    setFolderName(null);
+    setTabs([...STARTER_FILES]);
+    setActiveId("app");
+    setActivity("explorer");
+    setDock("output");
+    setOutput("Workspace closed.\nBack to in-memory mode — files are no longer saved to disk.");
+    toast("Workspace closed", "Back to in-memory mode");
   }
   async function doImportRepo(url: string) {
     setRepoBusy(true);
@@ -236,8 +325,9 @@ export default function App() {
     else if (a === "open-file") doAddFile();
     else if (a === "open-folder") doAddFolder();
     else if (a === "open-repo") setRepoOpen(true);
-    else if (a === "save") { save(activeId); downloadTab(active); toast("Saved " + active.label); }
-    else if (a === "save-all") { saveAll(); toast("All files saved"); }
+    else if (a === "close-workspace") void doCloseWorkspace();
+    else if (a === "save") doSaveActive();
+    else if (a === "save-all") doSaveAll();
     else if (a === "close-tab") close(activeId);
     else if (a === "close-all") closeAll();
     else if (a === "palette") setPalette(true);
@@ -264,7 +354,7 @@ export default function App() {
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
       if (mod && k === "k") { e.preventDefault(); setPalette(true); }
-      else if (mod && k === "s") { e.preventDefault(); save(activeId); toast("Saved " + active.label); }
+      else if (mod && k === "s") { e.preventDefault(); doSaveActive(); }
       else if (mod && k === "n") { e.preventDefault(); addFile(); }
       else if (mod && k === "o") { e.preventDefault(); doAddFile(); }
       else if (mod && k === "w") { e.preventDefault(); close(activeId); }
@@ -274,7 +364,7 @@ export default function App() {
       else if (mod && e.shiftKey && k === "p") { e.preventDefault(); setPalette(true); }
       else if (k === "f5") { e.preventDefault(); doQuickRun(); }
     };
-    const onSave = () => { save(activeId); toast("Saved " + active.label); };
+    const onSave = () => { void doSaveActive(); };
     window.addEventListener("keydown", onKey);
     window.addEventListener("vs-ide:save", onSave as any);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("vs-ide:save", onSave as any); };
@@ -288,7 +378,7 @@ export default function App() {
       if (c === "Add folder…") doAddFolder();
       if (c === "Add repo…") setRepoOpen(true);
       if (c === "Toggle theme") toggle();
-      if (c === "Save file") { save(activeId); toast("Saved"); }
+      if (c === "Save file") doSaveActive();
       if (c === "Go to terminal") setDock("terminal");
       if (c === "Show problems") setDock("problems");
       if (c === "Run JS") doQuickRun();
@@ -318,10 +408,10 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ flex: 1, minWidth: 0 }}><EditorTabs tabs={tabs} activeId={activeId} onChange={setActiveId} onClose={close} /></div>
             <button className="btn btn-sm btn-primary" onClick={doQuickRun} title="Run JS preview (sandboxed)"><Play size={13} /> Run</button>
-            <button className="btn btn-sm" onClick={() => { save(activeId); downloadTab(active); toast("Saved " + active.label); }}><Save size={13} /> Save</button>
+            <button className="btn btn-sm" onClick={() => { void doSaveActive(); }} title="Save (writes to disk in a workspace)"><Save size={13} /> Save</button>
           </div>
           <div className="crumbs" style={{ padding: 0 }}>
-            <span>{folderName || "src"}</span><ChevronRight size={12} /><b>{active.label}</b>
+            <span>{workspaceRoot || folderName || "src"}</span><ChevronRight size={12} /><b>{active.label}</b>
             <span className="badge" style={{ marginLeft: 6 }}>{active.language}</span>
             {active.dirty && <span className="badge badge-warn">unsaved</span>}
           </div>
@@ -361,6 +451,9 @@ export default function App() {
     </div></div>
   );
 }
+
+
+
 
 
 

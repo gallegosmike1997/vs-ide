@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 export type Toast = { id: number; title: string; body?: string; kind?: "info" | "ok" | "warn" | "error" };
-export type TabDef = { id: string; label: string; language: string; content: string; dirty?: boolean; path?: string };
+export type TabDef = { id: string; label: string; language: string; content: string; dirty?: boolean; path?: string; absPath?: string };
 export type Activity = "explorer" | "search" | "chat" | "refactor" | "debug" | "project";
 export type DockTab = "terminal" | "actions" | "problems" | "output" | "debug";
 export type MenuAction =
   | "new-file" | "open-file" | "open-folder" | "open-repo" | "save" | "save-all" | "close-tab" | "close-all"
   | "palette" | "goto-line" | "find" | "toggle-theme" | "toggle-terminal" | "toggle-debug" | "toggle-output" | "toggle-problems" | "toggle-actions"
   | "undo" | "redo" | "cut" | "copy" | "paste" | "select-all" | "format" | "comment" | "fold" | "unfold" | "wordwrap"
-  | "explain" | "fix" | "tests" | "settings" | "shortcuts" | "about";
+    | "explain" | "fix" | "tests" | "settings" | "shortcuts" | "about" | "close-workspace";
 export function langFromName(name: string): string {
   const n = name.toLowerCase();
   if (n.endsWith(".tsx") || n.endsWith(".ts") || n.endsWith(".mts")) return "typescript";
@@ -43,7 +43,7 @@ export function useTheme() {
   }, [theme]);
   return { theme, toggle: () => setTheme((t) => (t === "dark" ? "light" : "dark")) };
 }
-const STARTER_FILES: TabDef[] = [
+export const STARTER_FILES: TabDef[] = [
   { id: "app", label: "App.tsx", language: "typescript", content: "// Welcome to VS-IDE\n// Press Ctrl+K or Cmd+K for AI commands\n\nexport function hello(name: string) {\n  return `Hello, ${name}!`;\n}\n" },
   { id: "main", label: "main.tsx", language: "typescript", content: "import App from './App';\n// entry point (mocked)\nconsole.log('boot');\n" },
   { id: "api", label: "api.ts", language: "typescript", content: "export async function fetchUser(id: string) {\n  const res = await fetch(`/api/users/${id}`);\n  if (!res.ok) throw new Error('fetch failed');\n  return res.json();\n}\n" },

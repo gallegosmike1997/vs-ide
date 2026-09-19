@@ -9,6 +9,8 @@ path = "src/lib.rs"
 
 [dependencies]
 tauri = { version = "2.11.5", features = [] }
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
 yoke-derive = "=0.8.2"
 
 [build-dependencies]

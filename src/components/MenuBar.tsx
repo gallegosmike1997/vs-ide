@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import type { DockTab, MenuAction } from "../store";
+import { hasWorkspace } from "../lib/workspace";
 
 type Item = { id: MenuAction | "sep"; label?: string; hint?: string; checked?: boolean };
 type Menu = { id: string; label: string; items: Item[] };
@@ -28,6 +29,7 @@ export default function MenuBar({ onAction, dock, wordWrap }: {
         { id: "open-file", label: "Add File…", hint: "Ctrl+O" },
         { id: "open-folder", label: "Add Folder…", hint: "Ctrl+K O" },
         { id: "open-repo", label: "Add Repo from GitHub…", hint: "" },
+        ...(hasWorkspace() ? [{ id: "sep" as const }, { id: "close-workspace" as const, label: "Close Workspace", hint: "" }] : []),
         { id: "sep" },
         { id: "save", label: "Save", hint: "Ctrl+S" },
         { id: "save-all", label: "Save All", hint: "Ctrl+K S" },
