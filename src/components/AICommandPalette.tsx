@@ -13,7 +13,7 @@ export default function AICommandPalette({ open, onClose, tabs, onOpenFile, onRu
   const files = useMemo(() => tabs.filter((t) => t.label.toLowerCase().includes(q.replace(/^>?\s*/, "").toLowerCase())), [tabs, q]);
   const isCmd = q.startsWith(">");
   const commands = useMemo(() => {
-    const all = ["New file", "Toggle theme", "Save file", "Explain active file", "Find bugs", "Go to terminal", "Show problems"];
+    const all = ["New file", "Add file…", "Add folder…", "Add repo…", "Toggle theme", "Save file", "Run JS", "Explain active file", "Find bugs", "Go to terminal", "Show problems"];
     return all.filter((c) => c.toLowerCase().includes(q.replace(/^>\s*/, "").toLowerCase()));
   }, [q]);
   useEffect(() => setSel(0), [q]);

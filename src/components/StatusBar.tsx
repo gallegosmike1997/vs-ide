@@ -1,9 +1,11 @@
 import { Bell, GitBranch, XCircle, CheckCircle2, WifiOff, Wifi } from "lucide-react";
 import type { Toast } from "../store";
-import { useLLMStatus } from "../aiClient";
+import { useLLMConfig, useLLMStatus } from "../aiClient";
 type Props = { language: string; problems: number; toasts: Toast[]; onDismiss: (id: number) => void; onOpenProblems: () => void; line: number; col: number };
 export default function StatusBar({ language, problems, toasts, onDismiss, onOpenProblems, line, col }: Props) {
   const llm = useLLMStatus();
+  const [cfg] = useLLMConfig();
+  const short = cfg.baseUrl.replace(/^https?:\/\//, "").replace(/\/v1$/, "");
   return (
     <>
       <div className="toast-stack">
@@ -21,7 +23,7 @@ export default function StatusBar({ language, problems, toasts, onDismiss, onOpe
         <span className="status-item">Ln {line}, Col {col}</span>
         <span style={{ flex: 1 }} />
         <span className="status-item">{language}</span>
-        <span className="status-item">{llm === "online" ? <Wifi size={12} color="#34d399" /> : <WifiOff size={12} color="#ff5d5d" />} LM Studio :1234</span>
+        <span className="status-item" title={(cfg.model || "(no model)") + " @ " + cfg.baseUrl}>{llm === "online" ? <Wifi size={12} color="#34d399" /> : <WifiOff size={12} color="#ff5d5d" />} {cfg.provider} · {short} · {cfg.model || "no model"}</span>
         <span className="status-item">UTF-8</span>
       </div>
     </>

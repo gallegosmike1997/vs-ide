@@ -8,23 +8,27 @@ type Props = {
   onCursor: (line: number, col: number) => void;
   onProblems: (p: Problem[]) => void;
   gotoLine: number | null; onGotoDone: () => void;
+  findSignal?: number;
 };
 function localChecks(code: string): Problem[] {
   const out: Problem[] = [];
   const lines = code.split("\n");
   lines.forEach((ln, i) => {
     const n = i + 1;
-    if (ln.length > 140) out.push({ line: n, message: `Line exceeds 140 chars (${ln.length}). Consider wrapping.`, severity: "info", source: "local" });
-    if (/console\.log/.test(ln)) out.push({ line: n, message: "console.log left in code — remove before commit.", severity: "warn", source: "local" });
-    if (/\bany\b/.test(ln)) out.push({ line: n, message: "Avoid `any` — prefer explicit types.", severity: "warn", source: "local" });
+    if (ln.length > 140) out.push({ line: n, message: "Line exceeds 140 chars (" + ln.length + "). Consider wrapping.", severity: "info", source: "local" });
+    if (/console\.log/.test(ln)) out.push({ line: n, message: "console.log left in code - remove before commit.", severity: "warn", source: "local" });
+    if (/\bany\b/.test(ln)) out.push({ line: n, message: "Avoid `any` - prefer explicit types.", severity: "warn", source: "local" });
     if (/TODO|FIXME/.test(ln)) out.push({ line: n, message: ln.trim(), severity: "info", source: "local" });
+    if (/==(?!=)/.test(ln)) out.push({ line: n, message: "Use === instead of == to avoid coercion bugs.", severity: "warn", source: "local" });
+    if (/eval\s*\(/.test(ln)) out.push({ line: n, message: "eval() is dangerous - avoid.", severity: "error", source: "local" });
   });
-  // naive bracket balance
   const opens = (code.match(/{/g) || []).length, closes = (code.match(/}/g) || []).length;
-  if (opens !== closes) out.push({ line: lines.length, message: `Bracket imbalance: ${opens} '{' vs ${closes} '}'.`, severity: "error", source: "local" });
-  return out.slice(0, 30);
+  if (opens !== closes) out.push({ line: lines.length, message: "Bracket imbalance: " + opens + " vs " + closes + ".", severity: "error", source: "local" });
+  const oP = (code.match(/\(/g) || []).length, cP = (code.match(/\)/g) || []).length;
+  if (oP !== cP) out.push({ line: lines.length, message: "Paren imbalance: " + oP + " vs " + cP + ".", severity: "error", source: "local" });
+  return out.slice(0, 40);
 }
-export default function MonacoEditor({ value, language, fontSize, onChange, onCursor, onProblems, gotoLine, onGotoDone }: Props) {
+export default function MonacoEditor({ value, language, fontSize, onChange, onCursor, onProblems, gotoLine, onGotoDone, findSignal }: Props) {
   const ref = useRef<any>(null);
   const t = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDeco = useRef<string[]>([]);
@@ -38,9 +42,9 @@ export default function MonacoEditor({ value, language, fontSize, onChange, onCu
       const hints: { line: number; text: string }[] = [];
       for (const ln of res.split("\n")) {
         if (!ln.includes("LINE:")) continue;
-        const [a, ...rest] = ln.split("-");
-        const num = parseInt(a.replace("LINE:", "").trim(), 10);
-        const text = rest.join("-").trim();
+        const parts = ln.split("-");
+        const num = parseInt(parts[0].replace("LINE:", "").trim(), 10);
+        const text = parts.slice(1).join("-").trim();
         if (!isNaN(num) && text) hints.push({ line: num, text });
       }
       const monaco = (ed as any)._monaco ?? (window as any).monaco;
@@ -54,6 +58,7 @@ export default function MonacoEditor({ value, language, fontSize, onChange, onCu
   const mount: OnMount = (ed, monaco) => {
     (ref.current as any) = ed; (ed as any)._monaco = monaco;
     ed.onDidChangeCursorPosition((e: any) => onCursor(e.position.lineNumber, e.position.column));
+    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => { window.dispatchEvent(new CustomEvent("vs-ide:save")); });
     runAI(value);
   };
   const change: OnChange = (v) => {
@@ -70,6 +75,9 @@ export default function MonacoEditor({ value, language, fontSize, onChange, onCu
       onGotoDone();
     }
   }, [gotoLine, onGotoDone]);
+  useEffect(() => {
+    if (findSignal && ref.current) { ref.current.getAction("actions.find")?.run(); }
+  }, [findSignal]);
   return (
     <div className="glass" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", padding: 8 }}>
       <Editor
