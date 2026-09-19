@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Clock, CloudLightning, Loader2, LogIn, Plug, RefreshCw, Trash2, Wifi, WifiOff, X } from "lucide-react";
-import { PROVIDER_GROUPS, PROVIDER_PRESETS, activateFreeCloud, checkLLM, connectPuterNow, getLLMConfig, isPuterToken, listModels, puterAuthState, saveLLMConfig } from "../aiClient";
-import { useLLMConfig, useLLMStatus, type LLMProvider } from "../aiClient";
+import { PROVIDER_GROUPS, PROVIDER_PRESETS, activateFreeCloud, checkLLM, connectPuterNow, getLLMConfig, isPuterToken, listModels, puterAuthState, saveLLMConfig } from "../lib/aiClient";
+import { useLLMConfig, useLLMStatus, type LLMProvider } from "../lib/aiClient";
 export default function SettingsModal({ open, onClose, fontSize, setFontSize, onToast, initialTab }: {
   open: boolean; onClose: () => void; fontSize: number; setFontSize: (n: number) => void;
   onToast: (t: string, b?: string) => void; initialTab?: "llm" | "editor" | "keys";

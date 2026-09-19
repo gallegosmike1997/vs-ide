@@ -1,6 +1,6 @@
 import { Bot, Command, FilePlus, FolderPlus, GitFork, Moon, Settings, Sun } from "lucide-react";
 import MenuBar from "./MenuBar";
-import { useLLMConfig, useLLMStatus } from "../aiClient";
+import { useLLMConfig, useLLMStatus } from "../lib/aiClient";
 import type { DockTab, MenuAction } from "../store";
 type Props = {
   onPalette: () => void; onSettings: () => void; theme: string; onTheme: () => void;

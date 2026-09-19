@@ -24,9 +24,9 @@ import AboutModal from "./components/AboutModal";
 import type { Problem } from "./components/ProblemsPanel";
 import { langFromName, useTabs, useTheme, useToasts } from "./store";
 import type { Activity, DockTab, MenuAction, TabDef } from "./store";
-import { describeParseFailure, planEdits, runAgentEdit, summarizePlan, type AiEdit, type EditPlanItem } from "./aiEdits";
-import { downloadTab, importRepoFromGitHub, openFilePicker, openFolderPicker, runJsPreview } from "./fs";
-import { autoDetectLLM, activateFreeCloud, checkLLM, useLLMCall } from "./aiClient";
+import { describeParseFailure, planEdits, runAgentEdit, summarizePlan, type AiEdit, type EditPlanItem } from "./lib/aiEdits";
+import { downloadTab, importRepoFromGitHub, openFilePicker, openFolderPicker, runJsPreview } from "./lib/fs";
+import { autoDetectLLM, activateFreeCloud, checkLLM, useLLMCall } from "./lib/aiClient";
 import { ChevronRight, Play, Save } from "lucide-react";
 
 export default function App() {

@@ -3,7 +3,7 @@ import AICodeActions from "./AICodeActions";
 import ProblemsPanel, { type Problem } from "./ProblemsPanel";
 import DebugAssistant from "./DebugAssistant";
 import type { DockTab } from "../store";
-import type { AiEdit } from "../aiEdits";
+import type { AiEdit } from "../lib/aiEdits";
 export default function BottomDock({ dock, setDock, code, file, problems, onGotoProblem, output, onToast, onPlan }: {
   dock: DockTab; setDock: (d: DockTab) => void; code: string; problems: Problem[]; onGotoProblem: (l: number) => void; output: string;
   onToast: (t: string, b?: string) => void;

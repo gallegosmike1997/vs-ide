@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Copy, SendHorizonal, Trash2, Wand2 } from "lucide-react";
-import { callLLM, useLLMCall } from "../aiClient";
+import { callLLM, useLLMCall } from "../lib/aiClient";
 import { Markdown, extractCodeBlocks } from "./Markdown";
-import { EDIT_PROTOCOL, parseAiEdits, type AiEdit } from "../aiEdits";
+import { EDIT_PROTOCOL, parseAiEdits, type AiEdit } from "../lib/aiEdits";
 type Msg = { role: "user" | "ai"; text: string };
 export default function AIChatSidebar({ code, file, onToast, onPlan }: {
   code: string; file?: string; onToast: (t: string, b?: string) => void;

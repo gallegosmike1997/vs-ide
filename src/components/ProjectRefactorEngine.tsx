@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FolderKanban, Loader2 } from "lucide-react";
-import { useLLMCall } from "../aiClient";
+import { useLLMCall } from "../lib/aiClient";
 import { Markdown } from "./Markdown";
 import type { TabDef } from "../store";
 export default function ProjectRefactorEngine({ files, onToast }: { files: TabDef[]; onToast: (t: string, b?: string) => void }) {

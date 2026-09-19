@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, CloudLightning, Loader2, LogIn, Plug, RefreshCw, Sparkles, X } from "lucide-react";
-import { PROVIDER_GROUPS, PROVIDER_PRESETS, activateFreeCloud, checkLLM, connectPuterNow, puterAuthState } from "../aiClient";
-import { getLLMConfig, listModels, saveLLMConfig, useLLMStatus, type LLMProvider } from "../aiClient";
+import { PROVIDER_GROUPS, PROVIDER_PRESETS, activateFreeCloud, checkLLM, connectPuterNow, puterAuthState } from "../lib/aiClient";
+import { getLLMConfig, listModels, saveLLMConfig, useLLMStatus, type LLMProvider } from "../lib/aiClient";
 export default function LlmSetupGuide({ open, onClose, onDone }: {
   open: boolean; onClose: () => void; onDone: () => void;
 }) {

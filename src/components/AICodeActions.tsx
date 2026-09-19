@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { ClipboardCopy, Loader2, Play, Sparkles, Wand2 } from "lucide-react";
-import { useLLMCall } from "../aiClient";
+import { useLLMCall } from "../lib/aiClient";
 import { Markdown, extractCodeBlocks } from "./Markdown";
-import { runJsPreview } from "../fs";
-import { buildEditPrompt, parseAiEdits, type AiEdit } from "../aiEdits";
+import { runJsPreview } from "../lib/fs";
+import { buildEditPrompt, parseAiEdits, type AiEdit } from "../lib/aiEdits";
 const ACTIONS = [
   { id: "Find and fix the bugs in this file. Keep the public behaviour intact.", label: "Fix bugs" },
   { id: "Refactor for readability and remove duplication.", label: "Refactor" },

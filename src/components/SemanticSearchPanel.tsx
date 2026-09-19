@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Loader2, Search } from "lucide-react";
-import { useLLMCall } from "../aiClient";
+import { useLLMCall } from "../lib/aiClient";
 import { Markdown } from "./Markdown";
 import type { TabDef } from "../store";
 export default function SemanticSearchPanel({ files, onOpen }: { files: TabDef[]; onOpen: (id: string) => void }) {

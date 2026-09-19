@@ -1,6 +1,6 @@
 import { Bell, GitBranch, XCircle, CheckCircle2, WifiOff, Wifi } from "lucide-react";
 import type { Toast } from "../store";
-import { useLLMConfig, useLLMStatus } from "../aiClient";
+import { useLLMConfig, useLLMStatus } from "../lib/aiClient";
 type Props = {
   language: string; problems: number; toasts: Toast[]; onDismiss: (id: number) => void;
   onOpenProblems: () => void; onOpenSettings: () => void; line: number; col: number;

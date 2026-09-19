@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Bug, Play } from "lucide-react";
-import { runJsPreview } from "../fs";
+import { runJsPreview } from "../lib/fs";
 export default function DebugConsole({ code, onToast, onLog }: {
   code: string; onToast: (t: string, b?: string) => void; onLog: (s: string) => void;
 }) {

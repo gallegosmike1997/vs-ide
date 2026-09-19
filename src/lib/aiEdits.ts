@@ -1,4 +1,4 @@
-import type { TabDef } from "./store";
+import type { TabDef } from "../store";
 import { callLLM } from "./aiClient";
 
 // ---------------------------------------------------------------------------

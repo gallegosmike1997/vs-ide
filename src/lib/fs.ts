@@ -1,4 +1,4 @@
-import { langFromName, type TabDef } from "./store";
+import { langFromName, type TabDef } from "../store";
 
 function uid(prefix = "file"): string {
   return prefix + "-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 1e6).toString(36);

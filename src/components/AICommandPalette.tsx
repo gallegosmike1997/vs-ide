@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Command, CornerDownLeft, FileSearch, Sparkles } from "lucide-react";
-import { callLLM } from "../aiClient";
+import { callLLM } from "../lib/aiClient";
 import type { TabDef } from "../store";
 export default function AICommandPalette({ open, onClose, tabs, onOpenFile, onRun, onToast }: {
   open: boolean; onClose: () => void; tabs: TabDef[]; onOpenFile: (id: string) => void; onRun: (cmd: string, res: string) => void; onToast: (t: string, b?: string) => void;

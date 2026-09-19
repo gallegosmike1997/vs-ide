@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ArrowRight, Loader2, Wand2 } from "lucide-react";
-import { useLLMCall } from "../aiClient";
+import { useLLMCall } from "../lib/aiClient";
 import { Markdown } from "./Markdown";
 export default function AIRefactorPanel({ code, onToast }: { code: string; onToast: (t: string, b?: string) => void }) {
   const [out, setOut] = useState("");

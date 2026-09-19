@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, Sparkles, Undo2, X } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
-import { summarizePlan, type EditPlanItem } from "../aiEdits";
+import { summarizePlan, type EditPlanItem } from "../lib/aiEdits";
 import { langFromName } from "../store";
 import { Markdown } from "./Markdown";
 

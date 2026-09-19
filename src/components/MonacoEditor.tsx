@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import Editor, { type OnMount, type OnChange } from "@monaco-editor/react";
-import { callLLM } from "../aiClient";
+import { callLLM } from "../lib/aiClient";
 import type { Problem } from "./ProblemsPanel";
 type Props = {
   value: string; language: string; fontSize: number; wordWrap: boolean;

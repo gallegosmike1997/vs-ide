@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Bug, Loader2 } from "lucide-react";
-import { useLLMCall } from "../aiClient";
+import { useLLMCall } from "../lib/aiClient";
 import { Markdown } from "./Markdown";
 export default function DebugAssistant({ code, logs, onToast }: { code: string; logs: string; onToast: (t: string, b?: string) => void }) {
   const [out, setOut] = useState("");
