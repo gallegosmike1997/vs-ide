@@ -1,65 +1,47 @@
-import { useState } from 'react';
-import * as ScrollArea from '@radix-ui/react-scroll-area';
-
-type FileNode = {
-  name: string;
-  path: string;
-  isDir: boolean;
-  children?: FileNode[];
+import { useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, FileCode2, FileJson, FileText, Folder, FolderOpen, Plus, Search } from "lucide-react";
+import type { TabDef } from "../store";
+const extIcon = (n: string) => {
+  if (n.endsWith(".json")) return FileJson;
+  if (/\.(ts|tsx|js|jsx|py|rs|go)$/.test(n)) return FileCode2;
+  return FileText;
 };
-
-const mockTree: FileNode[] = [
-  { name: 'src', path: 'src', isDir: true, children: [
-    { name: 'App.tsx', path: 'src/App.tsx', isDir: false },
-    { name: 'main.tsx', path: 'src/main.tsx', isDir: false },
-  ]},
-  { name: 'package.json', path: 'package.json', isDir: false },
-];
-
-function Node({ node, onOpen }: { node: FileNode; onOpen: (path: string) => void }) {
+export default function FileExplorer({ tabs, activeId, onOpen, onNew }: {
+  tabs: TabDef[]; activeId: string; onOpen: (id: string) => void; onNew: () => void;
+}) {
+  const [q, setQ] = useState("");
   const [open, setOpen] = useState(true);
-
-  if (node.isDir) {
-    return (
-      <div className='mb-1'>
-        <div
-          className='cursor-pointer text-sm font-semibold'
-          onClick={() => setOpen(!open)}
-        >
-          {open ? '??' : '??'} {node.name}
+  const filtered = useMemo(() => tabs.filter((t) => t.label.toLowerCase().includes(q.toLowerCase())), [tabs, q]);
+  return (
+    <div className="glass" style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div className="panel-header"><span>Explorer</span><button className="icon-btn" style={{ width: 24, height: 24 }} title="New file" onClick={onNew}><Plus size={14} /></button></div>
+      <div style={{ padding: "10px 10px 0 10px" }}>
+        <div style={{ position: "relative" }}>
+          <Search size={13} style={{ position: "absolute", left: 9, top: 9, color: "var(--text-3)" }} />
+          <input className="input" style={{ paddingLeft: 28 }} placeholder="Filter files…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        {open && node.children && (
-          <div className='ml-4 mt-1'>
-            {node.children.map((child) => (
-              <Node key={child.path} node={child} onOpen={onOpen} />
-            ))}
+      </div>
+      <div style={{ padding: 8, overflowY: "auto", flex: 1 }}>
+        <div className="file-row" style={{ fontWeight: 800 }} onClick={() => setOpen(!open)}>
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          {open ? <FolderOpen size={14} /> : <Folder size={14} />} src
+          <span className="badge" style={{ marginLeft: "auto" }}>{filtered.length}</span>
+        </div>
+        {open && (
+          <div style={{ marginLeft: 14, marginTop: 4, display: "flex", flexDirection: "column", gap: 2 }}>
+            {filtered.map((t) => {
+              const Icon = extIcon(t.label);
+              return (
+                <div key={t.id} className={"file-row" + (t.id === activeId ? " active" : "")} onClick={() => onOpen(t.id)}>
+                  <Icon size={14} /> <span style={{ flex: 1 }} className="truncate">{t.label}</span>
+                  {t.dirty && <span className="dirty-dot" />}
+                </div>
+              );
+            })}
+            {!filtered.length && <div style={{ fontSize: 12, color: "var(--text-3)", padding: 8 }}>No files match.</div>}
           </div>
         )}
       </div>
-    );
-  }
-
-  return (
-    <div
-      className='cursor-pointer text-sm ml-4'
-      onClick={() => onOpen(node.path)}
-    >
-      ?? {node.name}
-    </div>
-  );
-}
-
-export default function FileExplorer({ onOpen }: { onOpen: (path: string) => void }) {
-  return (
-    <div className='glass h-full w-full p-2'>
-      <h2 className='text-sm font-semibold mb-2'>Explorer</h2>
-      <ScrollArea.Root className='h-[calc(100%-1rem)]'>
-        <ScrollArea.Viewport className='h-full'>
-          {mockTree.map((node) => (
-            <Node key={node.path} node={node} onOpen={onOpen} />
-          ))}
-        </ScrollArea.Viewport>
-      </ScrollArea.Root>
     </div>
   );
 }

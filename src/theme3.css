@@ -1,0 +1,37 @@
+/* part 3a — chrome */
+.activity-bar { width: 52px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 6px; }
+.activity-btn { width: 38px; height: 38px; border-radius: 11px; display: flex; align-items: center; justify-content: center; border: 1px solid transparent; background: transparent; color: var(--text-2); cursor: pointer; transition: all 0.16s; position: relative; }
+.activity-btn:hover { background: var(--glass); color: var(--text-0); }
+.activity-btn.active { background: rgba(79,140,255,0.16); color: var(--text-0); border-color: rgba(79,140,255,0.35); }
+.activity-btn.active::before { content: ""; position: absolute; left: -7px; top: 8px; bottom: 8px; width: 3px; border-radius: 99px; background: var(--accent); }
+.titlebar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; }
+.traffic { display: flex; gap: 7px; }
+.traffic i { width: 11px; height: 11px; border-radius: 99px; display: block; }
+.statusbar { display: flex; align-items: center; gap: 14px; padding: 6px 14px; font-size: 11.5px; color: var(--text-2); border-top: 1px solid var(--border); background: rgba(0,0,0,0.22); }
+[data-theme="light"] .statusbar { background: rgba(255,255,255,0.7); }
+.status-item { display: inline-flex; align-items: center; gap: 6px; }
+.status-item.clickable { cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+.status-item.clickable:hover { background: var(--glass-strong); color: var(--text-0); }
+.crumbs { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); padding: 8px 12px 0 12px; }
+.crumbs b { color: var(--text-0); font-weight: 600; }
+.dock-tabs { display: flex; gap: 4px; align-items: center; }
+.dock-tab { padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-2); cursor: pointer; border: 1px solid transparent; background: transparent; }
+.dock-tab:hover { color: var(--text-0); background: var(--glass); }
+.dock-tab.active { color: var(--text-0); background: var(--glass-strong); border-color: var(--border); }
+.toast-stack { position: fixed; bottom: 44px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 90; }
+.toast { display: flex; gap: 10px; align-items: flex-start; min-width: 280px; max-width: 360px; padding: 11px 12px; border-radius: 12px; background: var(--panel-solid); border: 1px solid var(--border-strong); box-shadow: var(--shadow); font-size: 12.5px; }
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(6px); z-index: 60; display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; animation: fade 0.18s ease; }
+.palette { width: min(620px, 92vw); overflow: hidden; animation: pop 0.22s cubic-bezier(0.2,0.9,0.3,1.2); }
+.palette-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; cursor: pointer; font-size: 13px; color: var(--text-1); }
+.palette-item:hover, .palette-item.selected { background: rgba(79,140,255,0.14); color: var(--text-0); }
+.modal { width: min(560px, 92vw); animation: pop 0.22s ease; }
+.shimmer { position: relative; overflow: hidden; background: var(--glass); border-radius: 8px; min-height: 14px; }
+.shimmer::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.09), transparent); animation: sweep 1.2s infinite; }
+.xterm-host { background: #07090f !important; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes blink { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+@keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 0.9s linear infinite; }

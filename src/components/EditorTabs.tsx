@@ -1,33 +1,24 @@
-import * as Tabs from '@radix-ui/react-tabs';
-
-type TabDef = {
-  id: string;
-  label: string;
-};
-
-type Props = {
-  tabs: TabDef[];
-  active: string;
-  onChange: (id: string) => void;
-};
-
-export default function EditorTabs({ tabs, active, onChange }: Props) {
+import { FileCode2, X } from "lucide-react";
+import type { TabDef } from "../store";
+export default function EditorTabs({ tabs, activeId, onChange, onClose }: {
+  tabs: TabDef[]; activeId: string; onChange: (id: string) => void; onClose: (id: string) => void;
+}) {
   return (
-    <Tabs.Root value={active} onValueChange={onChange}>
-      <Tabs.List className='flex gap-2 mb-2'>
-        {tabs.map((tab) => (
-          <Tabs.Trigger
-            key={tab.id}
-            value={tab.id}
-            className={
-              'px-3 py-1 text-xs rounded-md border border-white/10 ' +
-              (active === tab.id ? 'bg-white/10' : 'bg-black/40')
-            }
-          >
-            {tab.label}
-          </Tabs.Trigger>
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 6, minHeight: 36 }}>
+      <div className="etabs" style={{ flex: 1 }}>
+        {tabs.map((t) => (
+          <div key={t.id} className={"etab" + (t.id === activeId ? " active" : "")} onClick={() => onChange(t.id)}>
+            <FileCode2 size={13} />
+            <span>{t.label}</span>
+            {t.dirty ? <span className="dirty-dot" title="Unsaved" /> : null}
+            <button
+              className="icon-btn" style={{ width: 20, height: 20 }}
+              title="Close"
+              onClick={(e) => { e.stopPropagation(); onClose(t.id); }}
+            ><X size={12} /></button>
+          </div>
         ))}
-      </Tabs.List>
-    </Tabs.Root>
+      </div>
+    </div>
   );
 }

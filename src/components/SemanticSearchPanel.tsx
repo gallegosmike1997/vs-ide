@@ -1,57 +1,46 @@
-import { useState } from 'react';
-import { callLLM } from '../aiClient';
-
-type FileInfo = {
-  path: string;
-  content: string;
-};
-
-type Props = {
-  files: FileInfo[];
-};
-
-export default function SemanticSearchPanel({ files }: Props) {
-  const [query, setQuery] = useState('');
-  const [result, setResult] = useState('');
-
-  async function runSearch() {
-    const context = files
-      .map((f) => 'FILE: ' + f.path + '\n' + f.content)
-      .join('\n\n');
-
-    const prompt =
-      'You are a semantic search engine over a codebase.\n\n' +
-      'User query:\n' +
-      query +
-      '\n\nCodebase:\n' +
-      context +
-      '\n\nRespond with the most relevant file paths and a short explanation.\n';
-
-    const answer = await callLLM(prompt);
-    setResult(answer);
+import { useMemo, useState } from "react";
+import { Loader2, Search } from "lucide-react";
+import { useLLMCall } from "../aiClient";
+import { Markdown } from "./Markdown";
+import type { TabDef } from "../store";
+export default function SemanticSearchPanel({ files, onOpen }: { files: TabDef[]; onOpen: (id: string) => void }) {
+  const [q, setQ] = useState("");
+  const [out, setOut] = useState("");
+  const { loading, run } = useLLMCall();
+  const local = useMemo(() => {
+    if (!q.trim()) return [];
+    const needle = q.toLowerCase();
+    return files
+      .map((f) => ({ f, score: (f.label.toLowerCase().includes(needle) ? 2 : 0) + (f.content.toLowerCase().includes(needle) ? 1 : 0) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+  }, [q, files]);
+  async function search() {
+    if (!q.trim()) return;
+    const ctx = files.map((f) => `FILE: ${f.label}\n${f.content.slice(0, 2000)}`).join("\n\n");
+    const ans = await run(`Semantic search over codebase.\nQuery: ${q}\n\n${ctx}\n\nReturn most relevant file paths + one-line why. Markdown.`);
+    setOut(ans);
   }
-
   return (
-    <div className='glass h-full w-full p-3'>
-      <h2 className='text-sm font-semibold mb-2'>Semantic File Search</h2>
-
-      <input
-        className='w-full p-2 mb-2 bg-black/40 rounded-md text-sm'
-        placeholder='Search by meaning (e.g., "API router", "login form")'
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-
-      <button
-        className='px-3 py-1 text-xs rounded-md bg-white/10'
-        onClick={runSearch}
-      >
-        Search
-      </button>
-
-      <pre className='mt-3 text-xs whitespace-pre-wrap'>
-        {result || 'Results will appear here.'}
-      </pre>
+    <div className="glass" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div className="panel-header"><span>Semantic search</span><span className="badge badge-accent">AI</span></div>
+      <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. login form, API router…" onKeyDown={(e) => { if (e.key === "Enter") search(); }} />
+          <button className="btn btn-primary btn-sm" disabled={loading} onClick={search}>{loading ? <Loader2 size={13} className="spin" /> : <Search size={13} />}</button>
+        </div>
+        {!!local.length && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {local.map(({ f }) => (
+              <div key={f.id} className="result-card" style={{ cursor: "pointer" }} onClick={() => onOpen(f.id)}>
+                <b>{f.label}</b> <span style={{ color: "var(--text-2)" }}>— local match, click to open</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {loading && !out ? <div className="shimmer" style={{ height: 44 }} /> : out ? <div className="card"><Markdown text={out} /></div> : <div style={{ fontSize: 12, color: "var(--text-2)" }}>Results appear here. Local matches show instantly.</div>}
+      </div>
     </div>
   );
 }

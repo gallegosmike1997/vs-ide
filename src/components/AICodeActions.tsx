@@ -1,56 +1,36 @@
-import { useState } from 'react';
-import { callLLM } from '../aiClient';
-
-type Props = {
-  code: string;
-};
-
-export default function AICodeActions({ code }: Props) {
-  const [output, setOutput] = useState('');
-
-  async function runAction(kind: string) {
-    const prompt =
-      'You are an expert code assistant.\n\n' +
-      'Action: ' +
-      kind +
-      '\n\nCode:\n' +
-      code +
-      '\n\nPerform the action and respond with the transformed code or explanation.\n';
-
-    const answer = await callLLM(prompt);
-    setOutput(answer);
+import { useState } from "react";
+import { ClipboardCopy, Loader2, Sparkles } from "lucide-react";
+import { useLLMCall } from "../aiClient";
+import { Markdown, extractCodeBlocks } from "./Markdown";
+const ACTIONS = [
+  { id: "Refactor for readability", label: "Refactor" },
+  { id: "Add JSDoc + inline comments", label: "Comment" },
+  { id: "Optimize performance", label: "Optimize" },
+  { id: "Generate unit tests", label: "Tests" },
+  { id: "Fix types and null-safety", label: "Fix types" },
+];
+export default function AICodeActions({ code, onApply }: { code: string; onApply: (code: string) => void }) {
+  const [out, setOut] = useState("");
+  const { loading, run } = useLLMCall();
+  async function act(kind: string) {
+    const ans = await run(`Action: ${kind}\n\nCode:\n${code.slice(0, 6000)}\n\nReturn markdown with explanation then a fenced code block with the result.`);
+    setOut(ans);
   }
-
+  function apply() {
+    const blocks = extractCodeBlocks(out);
+    if (blocks[0]) { onApply(blocks[0]); }
+  }
   return (
-    <div className='glass h-full w-full p-3'>
-      <h2 className='text-sm font-semibold mb-2'>AI Code Actions</h2>
-
-      <div className='flex gap-2 mb-2'>
-        <button
-          className='px-3 py-1 text-xs rounded-md bg-white/10'
-          onClick={() => runAction('Refactor for readability')}
-        >
-          Refactor
-        </button>
-
-        <button
-          className='px-3 py-1 text-xs rounded-md bg-white/10'
-          onClick={() => runAction('Add comments explaining the code')}
-        >
-          Comment
-        </button>
-
-        <button
-          className='px-3 py-1 text-xs rounded-md bg-white/10'
-          onClick={() => runAction('Optimize performance')}
-        >
-          Optimize
-        </button>
+    <div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+        {ACTIONS.map((a) => (
+          <button key={a.id} className="btn btn-sm" disabled={loading} onClick={() => act(a.id)}>
+            {loading ? <Loader2 size={12} className="spin" /> : <Sparkles size={12} />} {a.label}
+          </button>
+        ))}
+        {out && <button className="btn btn-sm btn-primary" onClick={apply}><ClipboardCopy size={12} /> Copy result</button>}
       </div>
-
-      <pre className='mt-2 text-xs whitespace-pre-wrap'>
-        {output || 'Run an action to see AI output.'}
-      </pre>
+      {loading && !out ? <div className="shimmer" style={{ height: 60 }} /> : out ? <div className="card"><Markdown text={out} /></div> : <div style={{ fontSize: 12, color: "var(--text-2)" }}>Run an action — result with diff-ready code appears here.</div>}
     </div>
   );
 }

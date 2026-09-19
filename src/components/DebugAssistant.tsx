@@ -1,41 +1,26 @@
-import { useState } from 'react';
-import { callLLM } from '../aiClient';
-
-type Props = {
-  code: string;
-  logs: string;
-};
-
-export default function DebugAssistant({ code, logs }: Props) {
-  const [analysis, setAnalysis] = useState('');
-
-  async function runDebug() {
-    const prompt =
-      'You are a debugging assistant.\n\n' +
-      'Here is the code:\n' +
-      code +
-      '\n\nHere are the logs or errors:\n' +
-      logs +
-      '\n\nIdentify likely root causes, explain what is happening, and propose fixes.\n';
-
-    const answer = await callLLM(prompt);
-    setAnalysis(answer);
+import { useState } from "react";
+import { Bug, Loader2 } from "lucide-react";
+import { useLLMCall } from "../aiClient";
+import { Markdown } from "./Markdown";
+export default function DebugAssistant({ code, logs, onToast }: { code: string; logs: string; onToast: (t: string, b?: string) => void }) {
+  const [out, setOut] = useState("");
+  const [logText, setLogText] = useState(logs);
+  const { loading, run } = useLLMCall();
+  async function analyze() {
+    const ans = await run(`You are a debugging assistant.\nCode:\n${code.slice(0, 5000)}\n\nLogs/errors:\n${(logText || logs).slice(0, 3000)}\n\nGive: likely root cause, evidence, 2-3 fixes with code. Markdown.`);
+    setOut(ans);
+    onToast("Debug analysis ready");
   }
-
   return (
-    <div className='glass h-full w-full p-3'>
-      <h2 className='text-sm font-semibold mb-2'>Debugging Assistant</h2>
-
-      <button
-        className='px-3 py-1 text-xs rounded-md bg-white/10 mb-2'
-        onClick={runDebug}
-      >
-        Analyze
-      </button>
-
-      <pre className='text-xs whitespace-pre-wrap'>
-        {analysis || 'Click Analyze to get AI debugging help.'}
-      </pre>
+    <div className="glass">
+      <div className="panel-header"><span>Debug</span><span className="badge">AI</span></div>
+      <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <textarea className="textarea" style={{ minHeight: 56 }} value={logText} onChange={(e) => setLogText(e.target.value)} placeholder="Paste error / logs here…" />
+        <button className="btn btn-sm" disabled={loading} onClick={analyze}>
+          {loading ? <Loader2 size={13} className="spin" /> : <Bug size={13} />} Analyze
+        </button>
+        {loading && !out ? <div className="shimmer" style={{ height: 48 }} /> : out ? <div className="card"><Markdown text={out} /></div> : <div style={{ fontSize: 12, color: "var(--text-2)" }}>Paste a stack trace and hit Analyze.</div>}
+      </div>
     </div>
   );
 }

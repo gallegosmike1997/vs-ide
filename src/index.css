@@ -1,333 +1,51 @@
-﻿@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-body {
-  @apply bg-[#050505] text-white overflow-hidden;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+/* VS-IDE Modern Design System — tokens + shell */
+:root {
+  --bg-0: #06070b; --bg-1: #0a0c12; --bg-2: #10131c; --bg-3: #161b28;
+  --panel: rgba(18,22,34,0.74); --panel-solid: #0e1220;
+  --glass: rgba(255,255,255,0.06); --glass-strong: rgba(255,255,255,0.10);
+  --border: rgba(255,255,255,0.09); --border-strong: rgba(255,255,255,0.17);
+  --text-0: #f4f6fb; --text-1: #c6cddc; --text-2: #8b93a9; --text-3: #5b637a;
+  --accent: #4f8cff; --accent-2: #7c5cff; --accent-3: #22d3a5;
+  --danger: #ff5d5d; --warn: #ffb224; --ok: #34d399;
+  --shadow: 0 20px 60px rgba(0,0,0,0.55);
+  --radius: 12px; --radius-sm: 8px;
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
 }
-
+[data-theme="light"] {
+  --bg-0: #eef1f7; --bg-1: #f7f8fc; --bg-2: #ffffff; --bg-3: #e9edf6;
+  --panel: rgba(255,255,255,0.9); --panel-solid: #ffffff;
+  --glass: rgba(15,23,42,0.05); --glass-strong: rgba(15,23,42,0.09);
+  --border: rgba(15,23,42,0.11); --border-strong: rgba(15,23,42,0.2);
+  --text-0: #0b1220; --text-1: #2b354d; --text-2: #5d6a86; --text-3: #8b96b0;
+  --shadow: 0 18px 50px rgba(15,23,42,0.16);
+}
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; padding: 0; height: 100%; }
+body { background: var(--bg-0); color: var(--text-0); font-family: var(--font); overflow: hidden; font-size: 13.5px; -webkit-font-smoothing: antialiased; }
+button, input, textarea, select { font-family: inherit; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(125,135,160,0.3); border-radius: 99px; border: 2px solid transparent; background-clip: content-box; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 .ambient-bg {
-  background: radial-gradient(circle at 10% 0%, #1a1a1a, #050505);
-  animation: ambientMove 30s infinite alternate ease-in-out;
+  background:
+    radial-gradient(900px 500px at 15% -10%, rgba(79,140,255,0.18), transparent 60%),
+    radial-gradient(800px 500px at 90% 0%, rgba(124,92,255,0.16), transparent 60%),
+    radial-gradient(700px 600px at 50% 110%, rgba(34,211,165,0.08), transparent 60%),
+    var(--bg-0);
+  height: 100vh; width: 100vw;
 }
-
-@keyframes ambientMove {
-  0% { background-position: 0% 0%; }
-  100% { background-position: 100% 100%; }
-}
-
-.glass {
-  @apply bg-glass backdrop-blur-sm rounded-xl border border-white/10;
-}
-.ai-hint-glyph {
-  background-color: #4f8cff;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-"
-
-Write-Host "
-=== 4) Regenerate MonacoEditor.tsx (no template literals) ===
-"
-
-@"
-import { useEffect, useRef } from 'react';
-import Editor from '@monaco-editor/react';
-import { callLLM } from '../aiClient';
-
-export default function MonacoEditor({ value, language, onChange }) {
-  const editorRef = useRef(null);
-
-  async function analyze(code) {
-    const prompt =
-      'Analyze this code and return hints in the format: LINE: <number> - <hint>. ' +
-      'Also include hover explanations, code smells, and suggested fixes.\n\n' +
-      code;
-
-    const result = await callLLM(prompt);
-    const lines = result.split('\n').filter((l) => l.includes('LINE:'));
-
-    const hints = lines.map((line) => {
-      const parts = line.split('-');
-      if (parts.length < 2) return null;
-      const lineNum = parseInt(parts[0].replace('LINE:', '').trim(), 10);
-      const text = parts[1].trim();
-      return { line: lineNum, text };
-    }).filter(Boolean);
-
-    const monaco = editorRef.current._monaco;
-    const model = editorRef.current.getModel();
-
-    const decorations = hints.map((hint) => ({
-      range: new monaco.Range(hint.line, 1, hint.line, 1),
-      options: {
-        isWholeLine: true,
-        glyphMarginClassName: 'ai-hint-glyph',
-        glyphMarginHoverMessage: { value: hint.text }
-      }
-    }));
-
-    editorRef.current.deltaDecorations([], decorations);
-  }
-
-  async function autoFix(code) {
-    const prompt =
-      'Fix this code and return ONLY the corrected code:\n\n' + code;
-
-    const fixed = await callLLM(prompt);
-
-    if (fixed && fixed.length > 0) {
-      editorRef.current.setValue(fixed);
-    }
-  }
-
-  async function showDiff(code) {
-    const prompt =
-      'Refactor this code and return a unified diff (patch format):\n\n' + code;
-
-    const diff = await callLLM(prompt);
-    console.log('AI Diff:\n', diff);
-  }
-
-  return (
-    <Editor
-      height='100%'
-      theme='vs-dark'
-      language={language}
-      value={value}
-      onMount={(editor) => {
-        editorRef.current = editor;
-        analyze(value);
-      }}
-      onChange={(v) => {
-        onChange(v);
-        analyze(v || '');
-      }}
-      options={{
-        fontSize: 14,
-        minimap: { enabled: true },
-        glyphMargin: true,
-        automaticLayout: true
-      }}
-    />
-  );
-}
-.ai-hint-glyph {
-  background-color: #4f8cff;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.ai-inline-annotation {
-  background-color: rgba(79, 140, 255, 0.12);
-  border-bottom: 1px dashed rgba(79, 140, 255, 0.8);
-}
-"
-
-Write-Host "
-=== 6) Create AIChatSidebar.tsx ===
-"
-
-@"
-import { useState } from 'react';
-import { callLLM } from '../aiClient';
-
-export default function AIChatSidebar() {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-
-  async function send() {
-    if (!input.trim()) return;
-    const userMsg = { role: 'user', content: input };
-    const answer = await callLLM(input);
-    const aiMsg = { role: 'assistant', content: answer };
-    setMessages([...messages, userMsg, aiMsg]);
-    setInput('');
-  }
-
-  return (
-    <div className='glass h-full w-full p-3 flex flex-col'>
-      <h2 className='text-sm font-semibold mb-2'>AI Chat</h2>
-      <div className='flex-1 overflow-auto text-xs mb-2 space-y-1'>
-        {messages.map((m, i) => (
-          <div key={i}>
-            <span className='font-semibold'>{m.role === 'user' ? 'You: ' : 'AI: '}</span>
-            <span>{m.content}</span>
-          </div>
-        ))}
-      </div>
-      <div className='flex gap-2'>
-        <input
-          className='flex-1 p-2 bg-black/40 rounded-md text-xs'
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder='Ask AI anything...'
-        />
-        <button
-          className='px-3 py-1 text-xs rounded-md bg-white/10'
-          onClick={send}
-        >
-          Send
-        </button>
-      </div>
-    </div>
-  );
-}
-.ai-hint-glyph {
-  background-color: #4f8cff;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.ai-inline-annotation {
-  background-color: rgba(79, 140, 255, 0.12);
-  border-bottom: 1px dashed rgba(79, 140, 255, 0.8);
-}
-"
-
-Write-Host "
-=== 6) Create AIChatSidebar.tsx ===
-"
-@"
-import { useState } from 'react';
-import { callLLM } from '../aiClient';
-
-export default function AIChatSidebar() {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-
-  async function send() {
-    if (!input.trim()) return;
-    const userMsg = { role: 'user', content: input };
-    const answer = await callLLM(input);
-    const aiMsg = { role: 'assistant', content: answer };
-    setMessages([...messages, userMsg, aiMsg]);
-    setInput('');
-  }
-
-  return (
-    <div className='glass h-full w-full p-3 flex flex-col'>
-      <h2 className='text-sm font-semibold mb-2'>AI Chat</h2>
-      <div className='flex-1 overflow-auto text-xs mb-2 space-y-1'>
-        {messages.map((m, i) => (
-          <div key={i}>
-            <span className='font-semibold'>{m.role === 'user' ? 'You: ' : 'AI: '}</span>
-            <span>{m.content}</span>
-          </div>
-        ))}
-      </div>
-      <div className='flex gap-2'>
-        <input
-          className='flex-1 p-2 bg-black/40 rounded-md text-xs'
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder='Ask AI anything...'
-        />
-        <button
-          className='px-3 py-1 text-xs rounded-md bg-white/10'
-          onClick={send}
-        >
-          Send
-        </button>
-      </div>
-    </div>
-  );
-}
-.ai-hint-glyph {
-  background-color: #4f8cff;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.ai-inline-annotation {
-  background-color: rgba(79, 140, 255, 0.12);
-  border-bottom: 1px dashed rgba(79, 140, 255, 0.8);
-}
-"
-
-Write-Host "
-=== 6) Create AIChatSidebar.tsx ===
-"
-Set-Content -Encoding utf8 .\src\components\AIChatSidebar.tsx @"
-import { useState } from 'react';
-import { callLLM } from '../aiClient';
-
-export default function AIChatSidebar() {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-
-  async function send() {
-    if (!input.trim()) return;
-    const userMsg = { role: 'user', content: input };
-    const answer = await callLLM(input);
-    const aiMsg = { role: 'assistant', content: answer };
-    setMessages([...messages, userMsg, aiMsg]);
-    setInput('');
-  }
-
-  return (
-    <div className='glass h-full w-full p-3 flex flex-col'>
-      <h2 className='text-sm font-semibold mb-2'>AI Chat</h2>
-      <div className='flex-1 overflow-auto text-xs mb-2 space-y-1'>
-        {messages.map((m, i) => (
-          <div key={i}>
-            <span className='font-semibold'>{m.role === 'user' ? 'You: ' : 'AI: '}</span>
-            <span>{m.content}</span>
-          </div>
-        ))}
-      </div>
-      <div className='flex gap-2'>
-        <input
-          className='flex-1 p-2 bg-black/40 rounded-md text-xs'
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder='Ask AI anything...'
-        />
-        <button
-          className='px-3 py-1 text-xs rounded-md bg-white/10'
-          onClick={send}
-        >
-          Send
-        </button>
-      </div>
-    </div>
-  );
-}
-.ai-hint-glyph {
-  background-color: #4f8cff;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.ai-inline-annotation {
-  background-color: rgba(79, 140, 255, 0.12);
-  border-bottom: 1px dashed rgba(79, 140, 255, 0.8);
-}
-.ai-hint-glyph {
-  background-color: #4f8cff;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.ai-inline-annotation {
-  background-color: rgba(79, 140, 255, 0.12);
-  border-bottom: 1px dashed rgba(79, 140, 255, 0.8);
-}
-.ai-hint-glyph {
-  background-color: #4f8cff;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.ai-inline-annotation {
-  background-color: rgba(79, 140, 255, 0.12);
-  border-bottom: 1px dashed rgba(79, 140, 255, 0.8);
-}
+.ide-shell { display: flex; flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
+.ide-body { display: flex; flex: 1; min-height: 0; gap: 10px; padding: 0 10px 10px 10px; }
+.ide-center { flex: 1; display: flex; flex-direction: column; min-width: 0; gap: 10px; min-height: 0; }
+.ide-main-row { flex: 1; display: flex; gap: 10px; min-height: 0; }
+.ide-editor-col { flex: 1; display: flex; flex-direction: column; min-width: 0; gap: 10px; min-height: 0; }
+.ide-left { width: 292px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; gap: 10px; overflow-y: auto; }
+.ide-right { width: 348px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; gap: 10px; overflow-y: auto; }
+.glass { background: var(--panel); backdrop-filter: blur(18px) saturate(1.25); -webkit-backdrop-filter: blur(18px) saturate(1.25); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 28px rgba(0,0,0,0.25); }
+.panel-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); font-weight: 700; }
+.panel-body { padding: 12px; }
+.card { background: var(--glass); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
+.ai-hint-glyph { background: var(--accent); width: 7px; height: 7px; border-radius: 50%; margin-left: 6px; box-shadow: 0 0 10px var(--accent); }
+.ai-inline-annotation { background: rgba(79,140,255,0.12); border-bottom: 1px dashed rgba(79,140,255,0.8); }
