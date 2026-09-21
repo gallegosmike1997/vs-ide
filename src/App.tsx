@@ -16,6 +16,13 @@ import ActivityBar from "./components/ActivityBar";
 import StatusBar from "./components/StatusBar";
 import SettingsModal from "./components/SettingsModal";
 import BottomDock from "./components/BottomDock";
+import QuickOpen from "./components/QuickOpen";
+import SearchPanel from "./components/SearchPanel";
+import OutlinePanel from "./components/OutlinePanel";
+import SourceControl from "./components/SourceControl";
+import TasksPanel from "./components/TasksPanel";
+import { runShell } from "./lib/runner";
+import { readTextFile } from "@tauri-apps/plugin-fs";
 import RepoModal from "./components/RepoModal";
 import DebugConsole from "./components/DebugConsole";
 import LlmSetupGuide from "./components/LlmSetupGuide";
@@ -28,17 +35,21 @@ import { describeParseFailure, planEdits, runAgentEdit, summarizePlan, type AiEd
 import { downloadTab, importRepoFromGitHub, openFilePicker, openFolderPicker, runJsPreview } from "./lib/fs";
 import { autoDetectLLM, activateFreeCloud, checkLLM, useLLMCall } from "./lib/aiClient";
 import { absPathFor, closeWorkspace, currentRoot, isDesktop, pickWorkspace, readWorkspaceTree, removeWorkspaceFile, writeWorkspaceFile } from "./lib/workspace";
-import { ChevronRight, Play, Save } from "lucide-react";
+import { ChevronRight, Columns2, Play, Save, X } from "lucide-react";
 
 export default function App() {
   const tabsApi = useTabs();
-  const { tabs, active, activeId, setActiveId } = tabsApi;
+  const { tabs, active, activeId: maybeActiveId, setActiveId } = tabsApi;
+  const activeId = maybeActiveId ?? "";
   const { updateContent, close, save, saveAll, closeAll, openFiles, addFile, setTabs } = tabsApi;
+  // Split-editor pane model: groups/focus/split come from the store.
+  const { groups, focusedGroupId, focusGroup, splitRight, closeGroup } = tabsApi;
   const { theme, toggle } = useTheme();
   const { toasts, push, dismiss } = useToasts();
   const [activity, setActivity] = useState<Activity>("explorer");
   const [dock, setDock] = useState<DockTab>("terminal");
   const [palette, setPalette] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
   const [settings, setSettings] = useState(false);
   const [repoOpen, setRepoOpen] = useState(false);
   const [repoBusy, setRepoBusy] = useState(false);
@@ -304,6 +315,43 @@ export default function App() {
       toastErr("Repo import failed", String(e?.message || e).slice(0, 220));
     } finally { setRepoBusy(false); }
   }
+  /** Open a file by absolute path (Source Control hits, task errors, search). */
+  async function openAbsFile(abs: string): Promise<void> {
+    const norm = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+    const found = tabs.find((t) => t.absPath && norm(t.absPath) === norm(abs));
+    if (found) { setActiveId(found.id); return; }
+    if (!isDesktop()) return;
+    try {
+      const content = await readTextFile(abs);
+      const label = abs.split(/[\\/]/).pop() || abs;
+      const id = "disk-" + Date.now() + "-" + Math.floor(Math.random() * 1e5);
+      setTabs((ts) => [...ts, { id, label, language: langFromName(label), content, dirty: false, path: label, absPath: abs }]);
+      setActiveId(id);
+    } catch (e: any) { toastErr("Open failed", abs + " — " + String(e?.message || e).slice(0, 160)); }
+  }
+  /** Jump to a task/search problem hit: match by label, relative path or abs-path suffix. */
+  function openTaskHit(file: string, line: number) {
+    const norm = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+    const nf = norm(file);
+    const hit = tabs.find((t) =>
+      norm(t.label) === nf ||
+      norm(t.label).endsWith("/" + nf) ||
+      (t.path && norm(t.path).endsWith("/" + nf)) ||
+      (t.absPath && norm(t.absPath).endsWith("/" + nf)));
+    if (hit) { setActiveId(hit.id); setGotoLine(line); return; }
+    if (isDesktop() && workspaceRoot) {
+      const abs = workspaceRoot.replace(/[\\/]+$/, "") + "/" + file.replace(/^\.?\//, "");
+      void openAbsFile(abs).then(() => setGotoLine(line));
+    }
+  }
+  /** Commit all current changes through the real git CLI (desktop + repo only). */
+  async function doCommit(msg: string) {
+    const safe = msg.replace(/"/g, "'");
+    const r = await runShell(`git add -A && git commit -m "${safe}"`, 30000);
+    setOutput((o) => o + "\n$ git commit — " + msg + "\n" + r.output);
+    if (r.ok) toast("Committed", msg);
+    else toastErr("Commit failed", r.output.slice(0, 220) || "Is this folder a git repository?");
+  }
   function gotoLinePrompt() {
     const raw = window.prompt("Go to line:", String(cursor.line));
     const n = raw ? parseInt(raw, 10) : NaN;
@@ -360,7 +408,9 @@ export default function App() {
       else if (mod && k === "w") { e.preventDefault(); close(activeId); }
       else if (mod && k === "g") { e.preventDefault(); gotoLinePrompt(); }
       else if (mod && k === ",") { e.preventDefault(); openSettings("llm"); }
+      else if (mod && e.shiftKey && k === "f") { e.preventDefault(); setActivity("search"); }
       else if (mod && k === "f") { e.preventDefault(); setFindSignal((n) => n + 1); }
+      else if (mod && k === "p" && !e.shiftKey) { e.preventDefault(); setQuickOpen(true); }
       else if (mod && e.shiftKey && k === "p") { e.preventDefault(); setPalette(true); }
       else if (k === "f5") { e.preventDefault(); doQuickRun(); }
     };
@@ -387,16 +437,43 @@ export default function App() {
       if (c === "Write tests (creates a file)") aiHelp("tests");
     } else { setDock("output"); }
   }
+  // Split view: one pane per editor group; orphan tabs (not yet in a group) trail the focused pane.
+  const splitPanes = useMemo(() => {
+    const inAny = new Set(groups.flatMap((g) => g.tabIds));
+    const orphans = tabs.filter((t) => !inAny.has(t.id));
+    const byId = new Map(tabs.map((t) => [t.id, t]));
+    return groups.map((g) => {
+      const tabIds = g.id === focusedGroupId ? [...g.tabIds, ...orphans.map((o) => o.id)] : g.tabIds;
+      return {
+        id: g.id,
+        activeId: g.activeId,
+        tab: g.activeId ? byId.get(g.activeId) : undefined,
+        tabs: tabIds.map((id) => byId.get(id)).filter((t): t is TabDef => !!t),
+      };
+    });
+  }, [groups, tabs, focusedGroupId]);
   const leftPanel = activity === "chat"
     ? <AIChatSidebar code={active.content} file={active.label} onToast={toast} onPlan={showPlan} />
     : activity === "search"
-    ? <SemanticSearchPanel files={tabs} onOpen={setActiveId} />
+    ? <SearchPanel
+        currentFiles={tabs.map((t) => ({ label: t.label, content: t.content }))}
+        onOpenHit={(label, abs) => {
+          if (abs) void openAbsFile(abs);
+          else { const t = tabs.find((x) => x.label === label); if (t) setActiveId(t.id); }
+        }}
+      />
+    : activity === "source-control"
+    ? <SourceControl open={activity === "source-control"} onOpenFile={(p) => void openAbsFile(p)} onCommit={doCommit} onToast={toast} />
+    : activity === "outline"
+    ? <OutlinePanel code={active.content} onGoto={(l) => setGotoLine(l)} />
+    : activity === "tasks"
+    ? <TasksPanel onToast={toast} onOutput={(s) => { setDock("output"); setOutput((o) => o + (o ? "\n" : "") + s); }} onGoto={(f, l) => openTaskHit(f, l)} />
     : activity === "refactor"
     ? <AIRefactorPanel code={active.content} onToast={toast} />
     : activity === "debug"
     ? <><DebugConsole code={active.content} onToast={toast} onLog={(s) => setOutput((o) => o + "\n" + s)} /><DebugAssistant code={active.content} logs={output} onToast={toast} /></>
     : activity === "project"
-    ? <ProjectRefactorEngine files={tabs} onToast={toast} />
+    ? <ProjectRefactorEngine files={tabs} />
     : <FileExplorer tabs={tabs} activeId={activeId} onOpen={setActiveId} onNew={() => addFile()} onAddFile={doAddFile} onAddFolder={doAddFolder} onAddRepo={() => setRepoOpen(true)} folderName={folderName} />;
   return (
     <div className="ambient-bg"><div className="ide-shell">
@@ -407,6 +484,7 @@ export default function App() {
         <div className="ide-center">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ flex: 1, minWidth: 0 }}><EditorTabs tabs={tabs} activeId={activeId} onChange={setActiveId} onClose={close} /></div>
+            <button className="btn btn-sm" onClick={splitRight} title="Split editor right"><Columns2 size={13} /></button>
             <button className="btn btn-sm btn-primary" onClick={doQuickRun} title="Run JS preview (sandboxed)"><Play size={13} /> Run</button>
             <button className="btn btn-sm" onClick={() => { void doSaveActive(); }} title="Save (writes to disk in a workspace)"><Save size={13} /> Save</button>
           </div>
@@ -417,7 +495,26 @@ export default function App() {
           </div>
           <div className="ide-main-row">
             <div className="ide-editor-col">
-              <MonacoEditor value={active.content} language={active.language} fontSize={fontSize} wordWrap={wordWrap} onChange={(v) => updateContent(activeId, v)} onCursor={(l, c) => setCursor({ line: l, col: c })} onProblems={setProblems} gotoLine={gotoLine} onGotoDone={() => setGotoLine(null)} findSignal={findSignal} editSignal={editSignal} />
+              {groups.length === 1 ? (
+                <MonacoEditor value={active.content} language={active.language} fontSize={fontSize} wordWrap={wordWrap} onChange={(v) => updateContent(activeId, v)} onCursor={(l, c) => setCursor({ line: l, col: c })} onProblems={setProblems} gotoLine={gotoLine} onGotoDone={() => setGotoLine(null)} findSignal={findSignal} editSignal={editSignal} />
+              ) : (
+                <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {splitPanes.map((p) => (
+                    <div key={p.id} onMouseDown={() => focusGroup(p.id)}
+                      style={{ flex: 1, minHeight: 120, display: "flex", flexDirection: "column", minWidth: 0, padding: 4, borderRadius: 10, border: "1px solid " + (p.id === focusedGroupId ? "var(--gold, #e9c46a)" : "var(--border, rgba(255,255,255,0.12))") }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <EditorTabs tabs={p.tabs} activeId={p.activeId ?? ""} onChange={(id) => setActiveId(id, p.id)} onClose={(id) => close(id, p.id)} />
+                        <button className="icon-btn" style={{ width: 22, height: 22, flexShrink: 0 }} title="Close this pane" onClick={() => closeGroup(p.id)}><X size={12} /></button>
+                      </div>
+                      {p.tab ? (
+                        <MonacoEditor value={p.tab.content} language={p.tab.language} fontSize={fontSize} wordWrap={wordWrap} onChange={(v) => updateContent(p.tab!.id, v)} onCursor={p.id === focusedGroupId ? (l, c) => setCursor({ line: l, col: c }) : () => {}} onProblems={p.id === focusedGroupId ? setProblems : () => {}} gotoLine={p.id === focusedGroupId ? gotoLine : null} onGotoDone={() => setGotoLine(null)} findSignal={p.id === focusedGroupId ? findSignal : 0} editSignal={p.id === focusedGroupId ? editSignal : null} />
+                      ) : (
+                        <div style={{ flex: 1, display: "grid", placeItems: "center", color: "var(--text-2)", fontSize: 12 }}>Open a file in this pane</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
               <BottomDock dock={dock} setDock={setDock} code={active.content} file={active.label} problems={problems} onGotoProblem={(l) => setGotoLine(l)} output={output} onToast={toast} onPlan={showPlan} />
             </div>
             <div className="ide-right">
@@ -425,7 +522,7 @@ export default function App() {
               <SemanticSearchPanel files={tabs} onOpen={setActiveId} />
               <AIRefactorPanel code={active.content} onToast={toast} />
               <DebugAssistant code={active.content} logs={output} onToast={toast} />
-              <ProjectRefactorEngine files={tabs} onToast={toast} />
+              <ProjectRefactorEngine files={tabs} />
               <div className="glass">
                 <div className="panel-header">
                   <span>AI agent · writes the files for you</span>
@@ -442,6 +539,7 @@ export default function App() {
       </div>
       <StatusBar language={active.language} problems={problems.length} toasts={toasts} onDismiss={dismiss} onOpenProblems={() => setDock("problems")} onOpenSettings={() => openSettings("llm")} line={cursor.line} col={cursor.col} />
       <AICommandPalette open={palette} onClose={() => setPalette(false)} tabs={tabs} onOpenFile={setActiveId} onRun={onPaletteRun} onToast={toast} />
+      <QuickOpen open={quickOpen} onClose={() => setQuickOpen(false)} tabs={tabs} onOpenFile={(id) => setActiveId(id)} />
       <SettingsModal open={settings} onClose={() => setSettings(false)} fontSize={fontSize} setFontSize={setFontSize} onToast={toast} initialTab={settingsTab} />
       <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />

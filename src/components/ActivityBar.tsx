@@ -1,9 +1,12 @@
-import { Bug, Files, MessageSquare, Search, Wand2, FolderKanban } from "lucide-react";
+import { Bug, Files, GitBranch, ListChecks, ListTree, MessageSquare, Search, Wand2, FolderKanban } from "lucide-react";
 import type { Activity } from "../store";
 export default function ActivityBar({ active, onPick }: { active: Activity; onPick: (a: Activity) => void }) {
   const items: { id: Activity; icon: any; tip: string }[] = [
     { id: "explorer", icon: Files, tip: "Explorer" },
-    { id: "search", icon: Search, tip: "Semantic search" },
+    { id: "search", icon: Search, tip: "Search (Ctrl+Shift+F)" },
+    { id: "source-control", icon: GitBranch, tip: "Source control (git)" },
+    { id: "outline", icon: ListTree, tip: "Outline" },
+    { id: "tasks", icon: ListChecks, tip: "Run tasks (tasks.json)" },
     { id: "chat", icon: MessageSquare, tip: "AI chat" },
     { id: "refactor", icon: Wand2, tip: "Refactor" },
     { id: "debug", icon: Bug, tip: "Debug" },

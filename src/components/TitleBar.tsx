@@ -1,4 +1,4 @@
-import { Bot, Command, FilePlus, FolderPlus, GitFork, Moon, Settings, Sun } from "lucide-react";
+import { Command, FilePlus, FolderPlus, GitFork, Moon, Settings, Sun } from "lucide-react";
 import MenuBar from "./MenuBar";
 import { useLLMConfig, useLLMStatus } from "../lib/aiClient";
 import type { DockTab, MenuAction } from "../store";
@@ -14,7 +14,9 @@ export default function TitleBar({ onPalette, onSettings, theme, onTheme, dirty,
     <div className="titlebar" style={{ flexWrap: "wrap" }}>
       <div className="traffic"><i style={{ background: "#ff5f57" }} /><i style={{ background: "#febc2e" }} /><i style={{ background: "#28c840" }} /></div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800, letterSpacing: 0.02 }}>
-        <span style={{ width: 26, height: 26, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg,#4f8cff,#7c5cff)", color: "#fff" }}><Bot size={15} /></span>
+        <span style={{ width: 60, height: 60, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0, background: "#0b0709", border: "1px solid rgba(233,196,106,0.35)", boxShadow: "0 0 18px var(--maroon-glow)" }}>
+          <img src="/mzsg-logo.jpg" alt="MZSG" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        </span>
         <span>VS-IDE</span>
         {dirty && <span className="badge badge-warn">unsaved</span>}
       </div>

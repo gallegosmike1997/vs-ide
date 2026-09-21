@@ -1,26 +1,56 @@
-import { useState } from "react";
-import { FolderKanban, Loader2 } from "lucide-react";
-import { useLLMCall } from "../lib/aiClient";
-import { Markdown } from "./Markdown";
+// src/components/ProjectRefactorEngine.tsx
+import React, { useEffect, useState } from "react";
 import type { TabDef } from "../store";
-export default function ProjectRefactorEngine({ files, onToast }: { files: TabDef[]; onToast: (t: string, b?: string) => void }) {
-  const [out, setOut] = useState("");
-  const { loading, run } = useLLMCall();
-  async function analyze() {
-    const ctx = files.map((f) => `FILE: ${f.label}\n${f.content.slice(0, 2500)}`).join("\n\n");
-    const ans = await run(`Project-wide refactor engine. Files:\n${ctx}\n\nPropose: architecture notes, dupes, file-by-file plan. Markdown.`);
-    setOut(ans);
-    onToast("Project plan ready");
-  }
+import { planProjectEdits } from "../lib/refactor";
+
+type Props = {
+  files: TabDef[];
+  onApply?: (plan: any) => void;
+};
+
+const ProjectRefactorEngine: React.FC<Props> = ({ files, onApply }) => {
+  const [plan, setPlan] = useState<any | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const runPlan = async () => {
+    if (!files?.length) return;
+    setLoading(true);
+    try {
+      const p = await planProjectEdits(files, "Project-wide refactor");
+      setPlan(p);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    runPlan();
+  }, [files?.length]);
+
   return (
-    <div className="glass">
-      <div className="panel-header"><span>Project refactor</span><span className="badge">{files.length} files</span></div>
-      <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <button className="btn btn-sm" disabled={loading} onClick={analyze}>
-          {loading ? <Loader2 size={13} className="spin" /> : <FolderKanban size={13} />} Analyze project
-        </button>
-        {loading && !out ? <div className="shimmer" style={{ height: 48 }} /> : out ? <div className="card"><Markdown text={out} /></div> : <div style={{ fontSize: 12, color: "var(--text-2)" }}>Get a cross-file refactor plan.</div>}
-      </div>
-    </div>
+    <section className="project-refactor-engine">
+      <h3>Project-wide Refactor</h3>
+      {loading && <p>Planning…</p>}
+      {!loading && plan && (
+        <div className="plan-summary">
+          <p><strong>Summary:</strong> {plan.reply ?? "Project-wide plan"}</p>
+          <p><strong>Files involved:</strong> {files?.length ?? 0} files</p>
+          <ul>
+            {plan.items?.map((it: any, idx: number) => (
+              <li key={idx}>
+                {it.label ?? it.file ?? "file"}: {it.description ?? "edit"}
+              </li>
+            ))}
+          </ul>
+          <button onClick={() => onApply?.(plan)} disabled={!plan}>
+            Apply plan
+          </button>
+        </div>
+      )}
+    </section>
   );
-}
+};
+
+export default ProjectRefactorEngine;

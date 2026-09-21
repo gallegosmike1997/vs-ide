@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 export type Toast = { id: number; title: string; body?: string; kind?: "info" | "ok" | "warn" | "error" };
 export type TabDef = { id: string; label: string; language: string; content: string; dirty?: boolean; path?: string; absPath?: string };
-export type Activity = "explorer" | "search" | "chat" | "refactor" | "debug" | "project";
-export type DockTab = "terminal" | "actions" | "problems" | "output" | "debug";
+export type Activity = "explorer" | "search" | "source-control" | "outline" | "tasks" | "chat" | "refactor" | "debug" | "project";
+export type DockTab = "terminal" | "search" | "actions" | "problems" | "output" | "debug";
+/** One visible editor pane with its own tab strip + active tab (split editor). */
+export type EditorGroup = { id: string; tabIds: string[]; activeId: string | null };
 export type MenuAction =
   | "new-file" | "open-file" | "open-folder" | "open-repo" | "save" | "save-all" | "close-tab" | "close-all"
   | "palette" | "goto-line" | "find" | "toggle-theme" | "toggle-terminal" | "toggle-debug" | "toggle-output" | "toggle-problems" | "toggle-actions"
@@ -50,13 +52,29 @@ export const STARTER_FILES: TabDef[] = [
 ];
 export function useTabs() {
   const [tabs, setTabs] = useState<TabDef[]>(STARTER_FILES);
-  const [activeId, setActiveId] = useState("app");
+  const [activeId, setActiveId] = useState<string | null>("app");
+  // Split-editor panes: each group has its own tab strip + active tab.
+  // Groups only hold tab ids — `tabs` stays the single source of content truth.
+  const [groups, setGroups] = useState<EditorGroup[]>([{ id: "group-0", tabIds: ["app"], activeId: "app" }]);
+  const [focusedGroupId, setFocusedGroupId] = useState<string>("group-0");
+  const focusedRef = useRef(focusedGroupId);
+  focusedRef.current = focusedGroupId;
   const active = tabs.find((t) => t.id === activeId) || tabs[0];
   const updateContent = useCallback((id: string, content: string) => {
     setTabs((ts) => ts.map((t) => (t.id === id ? { ...t, content, dirty: true } : t)));
   }, []);
   const openFiles = useCallback((files: TabDef[]) => {
     if (!files.length) return;
+    const target = focusedRef.current;
+    // Resolve which ids will be present after the merge so the last opened
+    // file can be placed into the focused pane without stale-state reads.
+    const known = new Map(tabs.map((t) => [t.label + "\u0000" + t.content, t.id]));
+    const placed: string[] = [];
+    for (const f of files) {
+      const key = f.label + "\u0000" + f.content;
+      if (!known.has(key)) known.set(key, f.id);
+      placed.push(known.get(key)!);
+    }
     setTabs((ts) => {
       const next = [...ts];
       for (const f of files) {
@@ -65,21 +83,47 @@ export function useTabs() {
       }
       return next;
     });
-    setActiveId(files[files.length - 1].id);
-  }, []);
+    const lastId = placed[placed.length - 1];
+    setGroups((gs) =>
+      gs.some((g) => g.id === target)
+        ? gs.map((g) =>
+            g.id === target
+              ? { ...g, tabIds: g.tabIds.includes(lastId) ? g.tabIds : [...g.tabIds, lastId], activeId: lastId }
+              : g
+          )
+        : gs
+    );
+    setActiveId(lastId);
+  }, [tabs]);
   const addFile = useCallback((name?: string, content = "") => {
     const label = name || ("untitled-" + (tabs.length + 1) + ".ts");
     const id = "file-" + Date.now() + "-" + Math.floor(Math.random() * 1e5);
     setTabs((ts) => [...ts, { id, label, language: langFromName(label), content: content || ("// " + label + "\n"), dirty: true }]);
+    const target = focusedRef.current;
+    setGroups((gs) =>
+      gs.some((g) => g.id === target)
+        ? gs.map((g) => (g.id === target ? { ...g, tabIds: [...g.tabIds, id], activeId: id } : g))
+        : gs
+    );
     setActiveId(id);
     return id;
   }, [tabs.length]);
-  const close = useCallback((id: string) => {
+  const close = useCallback((id: string, gid?: string) => {
+    setGroups((gs) =>
+      gs.map((g) => {
+        if (gid && g.id !== gid) return g;
+        if (!g.tabIds.includes(id)) return g;
+        const idx = g.tabIds.indexOf(id);
+        const tabIds = g.tabIds.filter((t) => t !== id);
+        const activeId = g.activeId === id ? (tabIds[Math.max(0, idx - 1)] ?? null) : g.activeId;
+        return { ...g, tabIds, activeId };
+      })
+    );
     setTabs((ts) => {
-      if (ts.length === 1) return ts;
+      if (ts.length === 1 && ts[0].id === id) return ts; // never strand the UI empty
       const idx = ts.findIndex((t) => t.id === id);
       const next = ts.filter((t) => t.id !== id);
-      if (id === activeId) setActiveId(next[Math.max(0, idx - 1)].id);
+      if (id === activeId) setActiveId(next[Math.max(0, idx - 1)]?.id ?? null);
       return next;
     });
   }, [activeId]);
@@ -92,7 +136,56 @@ export function useTabs() {
   const closeAll = useCallback(() => {
     setTabs((ts) => (ts.length ? [ts.find((t) => t.id === activeId) || ts[0]] : ts));
   }, [activeId]);
-  return { tabs, active, activeId, setActiveId, updateContent, close, save, setTabs, openFiles, addFile, saveAll, closeAll };
+  // ---- split-editor pane controls ------------------------------------------
+  /** Focus a pane: the global active tab follows the pane's active tab. */
+  const focusGroup = useCallback((gid: string) => {
+    setFocusedGroupId(gid);
+    setGroups((gs) => {
+      const g = gs.find((x) => x.id === gid);
+      if (g?.activeId) setActiveId(g.activeId);
+      return gs;
+    });
+  }, []);
+  /** Activate a tab, optionally inside a specific pane (otherwise the focused one). */
+  const activateTab = useCallback((id: string, gid?: string) => {
+    const target = gid ?? focusedRef.current;
+    setFocusedGroupId(target);
+    setGroups((gs) =>
+      gs.some((g) => g.id === target)
+        ? gs.map((g) =>
+            g.id === target
+              ? { ...g, tabIds: g.tabIds.includes(id) ? g.tabIds : [...g.tabIds, id], activeId: id }
+              : g
+          )
+        : gs
+    );
+    setActiveId(id);
+  }, []);
+  /** Split the focused pane to the right, carrying its active tab along. */
+  const splitRight = useCallback(() => {
+    const g = groups.find((x) => x.id === focusedRef.current) ?? groups[0];
+    const carry = g?.activeId ?? (g ? g.tabIds[g.tabIds.length - 1] : undefined) ?? activeId;
+    const id = "group-" + Date.now() + "-" + Math.floor(Math.random() * 1e5);
+    setGroups((gs) => [...gs, { id, tabIds: carry ? [carry] : [], activeId: carry ?? null }]);
+    setFocusedGroupId(id);
+    if (carry) setActiveId(carry);
+  }, [groups, activeId]);
+  /** Close a pane; its tabs stay open in the remaining panes. */
+  const closeGroup = useCallback((gid: string) => {
+    if (groups.length <= 1 || !groups.some((g) => g.id === gid)) return;
+    const next = groups.filter((g) => g.id !== gid);
+    setGroups(next);
+    if (focusedRef.current === gid) {
+      const into = next[next.length - 1];
+      setFocusedGroupId(into.id);
+      if (into.activeId) setActiveId(into.activeId);
+    }
+  }, [groups]);
+  return {
+    tabs, active, activeId,
+    setActiveId: activateTab, updateContent, close, save, setTabs, openFiles, addFile, saveAll, closeAll,
+    groups, focusedGroupId, focusGroup, splitRight, closeGroup,
+  };
 }
 export function useKeyboard(shortcuts: Record<string, () => void>) {
   useEffect(() => {
