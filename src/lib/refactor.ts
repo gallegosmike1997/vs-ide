@@ -29,7 +29,7 @@ function buildProjectPrompt(context: string): string {
 }
 
 /** Normalize various shapes of plan results into a consistent structure. */
-function normalizePlanResult(planResult: unknown): { items: EditPlanItem[]; reply: string } {
+export function normalizePlanResult(planResult: unknown): { items: EditPlanItem[]; reply: string } {
   // Default empty plan
   let items: EditPlanItem[] = [];
   let reply = "";
