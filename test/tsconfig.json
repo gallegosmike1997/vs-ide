@@ -1,0 +1,22 @@
+{
+  "$comment": "Isolated config for running TS test harnesses under Node + ts-node(esm). Do NOT use CommonJS here: the app's lib chain (src/lib/aiClient.ts) reads import.meta.env at module load, which is undefined-but-safe under ESM and throws under CommonJS.",
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "target": "ES2020",
+    "lib": ["ES2020"],
+    "noEmit": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": false
+  },
+  "include": [
+    "../src/lib/**/*.ts",
+    "../src/lib/**/*.tsx",
+    "../src/store.ts",
+    "./**/*.ts"
+  ]
+}
