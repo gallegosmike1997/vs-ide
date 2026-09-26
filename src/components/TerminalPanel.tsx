@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
-import { Play, Plus, X } from "lucide-react";
+import { ClipboardPaste, Copy, Eraser, Play, Plus, X } from "lucide-react";
 import "xterm/css/xterm.css";
 import type { TabDef } from "../store";
+import { showContextMenu } from "../lib/contextMenu";
+import { baseName, currentRoot, currentRoots } from "../lib/workspace";
 import {
   canRunReal, detectAvailableLanguages, detectShells, runShell,
   RUNNERS, runWithLanguage, selectedShell, setSelectedShell, SHELLS, SHELL_LABEL,
@@ -12,9 +14,10 @@ import {
 
 const DIM = "\x1b[2m", BOLD = "\x1b[1;33m", RED = "\x1b[1;31m", GREEN = "\x1b[1;32m", CYAN = "\x1b[1;36m", RESET = "\x1b[0m";
 
-type Session = { id: string; label: string; shellId: string };
+/** Per-terminal cwd: null = follow the primary workspace root (multi-root aware). */
+type Session = { id: string; label: string; shellId: string; cwd: string | null };
 let seq = 1;
-const newSession = (shellId: string): Session => ({ id: "term-" + seq++, label: "term " + seq, shellId });
+const newSession = (shellId: string, cwd: string | null = null): Session => ({ id: "term-" + seq++, label: "term " + seq, shellId, cwd });
 
 export default function TerminalPanel({ active }: { active?: TabDef | null }) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -34,7 +37,27 @@ export default function TerminalPanel({ active }: { active?: TabDef | null }) {
   const [activeIdx, setActiveIdx] = useState(0);
   const activeIdxRef = useRef(activeIdx);
   activeIdxRef.current = activeIdx;
+  // Mirror sessions for the xterm onData closure (per-session cwd for exec).
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
   activeRef.current = active ?? null;
+
+  /** Right-click menu: the terminal has its own copy of the clipboard, so paste
+   *  and copy have to go through xterm (a browser paste event is unreliable). */
+  const pasteClipboard = async () => {
+    const term = termRef.current;
+    if (!term) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) term.paste(text);
+    } catch {
+      term.paste("");
+    }
+  };
+  const copySelection = () => {
+    const sel = termRef.current?.getSelection();
+    if (sel) void navigator.clipboard?.writeText(sel);
+  };
 
   useEffect(() => {
     if (!realMode) return;
@@ -60,16 +83,17 @@ export default function TerminalPanel({ active }: { active?: TabDef | null }) {
     const write = (s: string) => { for (const line of s.replace(/\r/g, "").split("\n")) term.writeln(line); };
 
     const printHelp = () => {
-      term.writeln(`${BOLD}VS-IDE terminal${RESET} — real commands run in your workspace folder`);
+      term.writeln(`${BOLD}VS-IDE terminal${RESET} — real commands run in your terminal's cwd (toolbar: shell + cwd pickers)`);
       term.writeln(`${DIM}  run            run the active file with its language interpreter`);
       term.writeln("  run <lang>     force a language: " + Object.keys(RUNNERS).join(", "));
       term.writeln("  langs          show which toolchains are installed");
       term.writeln("  shells         list installed shells");
+      term.writeln("  cd <folder>    switch cwd (must stay inside open folders)");
       term.writeln("  help / clear   this help / clear screen");
       term.writeln(`  anything else  executes for real: python main.py, git status, npm install…${RESET}`);
     };
 
-    term.writeln(`${BOLD}VS-IDE terminal${RESET} ${DIM}(${shellName} — workspace as cwd)${RESET}`);
+    term.writeln(`${BOLD}VS-IDE terminal${RESET} ${DIM}(${shellName} — cwd: primary root, switchable per tab)${RESET}`);
     printHelp();
     term.write("\r\n$ ");
 
@@ -103,6 +127,29 @@ export default function TerminalPanel({ active }: { active?: TabDef | null }) {
     const exec = async (cmd: string) => {
       if (cmd === "help") { printHelp(); return; }
       if (cmd === "clear") { term.clear(); return; }
+      if (cmd === "cd" || cmd.startsWith("cd ")) {
+        const here = sessionsRef.current[activeIdxRef.current]?.cwd ?? currentRoot();
+        const arg = cmd.slice(2).trim().replace(/^["']|["']$/g, "");
+        if (!arg) { write(`${DIM}cwd: ${here ?? "(no workspace folder)"}${RESET}`); return; }
+        const rootsNow = currentRoots();
+        if (!rootsNow.length) { write(`${RED}cd: no workspace folder open${RESET}`); return; }
+        let t = arg;
+        if (!/^[a-z]:[\\/]|^\//i.test(t)) t = (here ?? rootsNow[0]).replace(/[\\/]+$/, "") + "/" + t;
+        // Collapse "." / ".." segments, then require the result inside an open root.
+        const segs: string[] = [];
+        for (const seg of t.replace(/\\/g, "/").split("/")) {
+          if (!seg || seg === ".") continue;
+          if (seg === "..") { if (segs.length > 1) segs.pop(); } else segs.push(seg);
+        }
+        t = segs.join("/");
+        const normP = (p: string) => p.replace(/\\/g, "/").toLowerCase().replace(/\/+$/, "");
+        const ok = rootsNow.some((r) => normP(t) === normP(r) || normP(t).startsWith(normP(r) + "/"));
+        if (!ok) { write(`${RED}cd: "${arg}" is outside the open workspace folders${RESET}`); return; }
+        const idx = activeIdxRef.current;
+        setSessions((prev) => prev.map((s, i) => (i === idx ? { ...s, cwd: t } : s)));
+        write(`${DIM}cwd → ${t}${RESET}`);
+        return;
+      }
       if (cmd === "langs") {
         const a = await detectAvailableLanguages();
         for (const [id, ok] of Object.entries(a)) write(`${ok ? GREEN + "✔" : RED + "✖"}${RESET} ${id}${ok ? "" : "  (not installed)"}`);
@@ -115,8 +162,9 @@ export default function TerminalPanel({ active }: { active?: TabDef | null }) {
       }
       if (cmd === "run") { await runLanguage(); return; }
       if (cmd.startsWith("run ")) { await runLanguage(cmd.slice(4).trim()); return; }
+      const sessCwd = sessionsRef.current[activeIdxRef.current]?.cwd ?? undefined;
       busyRef.current = true; setBusy(true);
-      try { printResult(await runShell(cmd, 60000, shellChoiceRef.current)); }
+      try { printResult(await runShell(cmd, 60000, shellChoiceRef.current, sessCwd)); }
       catch (e: any) { write(`${RED}${String(e?.message || e)}${RESET}`); }
       finally { busyRef.current = false; setBusy(false); }
     };
@@ -173,7 +221,7 @@ export default function TerminalPanel({ active }: { active?: TabDef | null }) {
     const s = newSession(shellChoice);
     setSessions((prev) => [...prev, s]);
     setActiveIdx(sessions.length);
-    termRef.current?.writeln(`\r\n${CYAN}── new terminal (${SHELL_LABEL(s.shellId)}) ──${RESET}`);
+    termRef.current?.writeln(`\r\n${CYAN}── new terminal (${SHELL_LABEL(s.shellId)} · cwd: ${s.cwd ? baseName(s.cwd) : "primary root"}) ──${RESET}`);
     termRef.current?.write("$ ");
   }
   function killSession(idx: number) {
@@ -231,6 +279,23 @@ export default function TerminalPanel({ active }: { active?: TabDef | null }) {
               return <option key={s.id} value={s.id}>{s.label}{info && !info.available ? " (not installed)" : ""}</option>;
             })}
           </select>
+          {currentRoots().length > 0 && (
+            <select
+              value={sess?.cwd ?? ""}
+              onChange={(e) => {
+                const v = e.target.value || null;
+                setSessions((prev) => prev.map((s, i) => (i === activeIdx ? { ...s, cwd: v } : s)));
+                const name = v ? baseName(v) : (currentRoot() ? baseName(currentRoot()!) : "primary root");
+                termRef.current?.writeln(`\r\n${DIM}── cwd → ${name}${v ? "" : " (default)"} ──${RESET}`);
+                termRef.current?.write("$ ");
+              }}
+              style={{ fontSize: 12, background: "var(--bg-2, #10131c)", color: "var(--text, #d7deef)", border: "1px solid var(--border, #2a3040)", borderRadius: 8, padding: "3px 8px" }}
+              title="Working folder for THIS terminal — pick any open workspace root (multi-root)"
+            >
+              <option value="">Primary root{currentRoot() ? ` — ${baseName(currentRoot()!)}` : ""}</option>
+              {currentRoots().map((r) => <option key={r} value={r}>{baseName(r)}</option>)}
+            </select>
+          )}
           <select
             value={langChoice}
             onChange={(e) => setLangChoice(e.target.value)}
@@ -249,7 +314,18 @@ export default function TerminalPanel({ active }: { active?: TabDef | null }) {
           <span style={{ fontSize: 11, color: "var(--text-2, #8b93a9)" }}>{active ? `${active.label} · ${active.language}` : "no file open"}</span>
         </div>
       )}
-      <div ref={ref} className="xterm-host" style={{ flex: 1, minHeight: 0, width: "100%", padding: 6 }} />
+      <div ref={ref} className="xterm-host"
+        style={{ flex: 1, minHeight: 0, width: "100%", padding: 6 }}
+        onContextMenu={(e) => showContextMenu(e, [
+          { label: "Paste", hint: "Ctrl+V", icon: <ClipboardPaste size={13} />, run: pasteClipboard },
+          { label: "Copy Selection", icon: <Copy size={13} />, run: copySelection },
+          { sep: true },
+          { label: "Run Active File", command: "run-file" },
+          { label: "Clear Scrollback", icon: <Eraser size={13} />, run: () => { termRef.current?.clear(); termRef.current?.write("$ "); } },
+          { sep: true },
+          { label: "New Terminal", icon: <Plus size={13} />, run: addSession },
+          { label: "Kill This Terminal", icon: <X size={13} />, danger: true, run: () => killSession(activeIdx) },
+        ], "Terminal")} />
     </div>
   );
 }

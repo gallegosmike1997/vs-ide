@@ -1,11 +1,12 @@
-import { isDesktop, currentRoot, absPathFor, readWorkspaceFile } from "./workspace";
+import { isDesktop, currentRoots, baseName, readWorkspaceFile } from "./workspace";
 
 // ---------------------------------------------------------------------------
 // VS Code-compatible tasks (tasks.json v2.0.0).
 //
-// Reads <workspace>/.vscode/tasks.json (or <workspace>/tasks.json) and hands
-// typed task defs to the TasksPanel, which runs them through the Rust
-// `run_command` backend. Degrades to an empty task list in the browser.
+// Reads <each-open-folder>/.vscode/tasks.json (or <folder>/tasks.json) and
+// hands typed task defs to the TasksPanel, which runs them through the Rust
+// `run_command` backend with cwd = the folder the task came from.
+// Degrades to an empty task list in the browser.
 // ---------------------------------------------------------------------------
 
 export type TaskDef = {
@@ -24,6 +25,10 @@ export type TaskDef = {
   isDefault?: boolean;
   /** Milliseconds before we kill the process (default 60s). */
   timeoutMs?: number;
+  /** Absolute root folder this task was defined in (multi-root workspaces). */
+  root: string;
+  /** Which file it came from, e.g. "Super-AI-Stack/.vscode/tasks.json". */
+  source: string;
 };
 
 const MATCHER_IDS: Record<string, RegExp> = {
@@ -42,28 +47,38 @@ export function matcherRegex(matcher: string | undefined): RegExp | null {
 }
 
 const CANDIDATE_PATHS = [".vscode/tasks.json", "tasks.json"];
+const joinRoot = (root: string, rel: string) => root.replace(/[\\/]+$/, "") + "/" + rel;
 
-async function readFirstAvailable(): Promise<{ text: string; path: string } | null> {
+async function readFirstAvailable(root: string): Promise<{ text: string; path: string } | null> {
   for (const rel of CANDIDATE_PATHS) {
     try {
-      const text = await readWorkspaceFile(absPathFor(rel));
+      const text = await readWorkspaceFile(joinRoot(root, rel));
       if (text && text.trim()) return { text, path: rel };
     } catch { /* not found — try next */ }
   }
   return null;
 }
 
-/** Load + validate tasks.json from the open workspace. */
+/** Load + validate tasks.json from EVERY open workspace folder (multi-root). */
 export async function loadTasks(): Promise<{ tasks: TaskDef[]; source: string }> {
-  if (!isDesktop() || !currentRoot()) return { tasks: [], source: "" };
-  const found = await readFirstAvailable();
-  if (!found) return { tasks: [], source: "" };
-  try {
-    const parsed = JSON.parse(found.text.replace(/^\uFEFF/, ""));
-    const list: any[] = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.tasks) ? parsed.tasks : []);
-    const tasks: TaskDef[] = list
-      .filter((t) => t && typeof t.label === "string" && t.label)
-      .map((t) => ({
+  if (!isDesktop() || !currentRoots().length) return { tasks: [], source: "" };
+  const tasks: TaskDef[] = [];
+  const sources: string[] = [];
+  for (const root of currentRoots()) {
+    const found = await readFirstAvailable(root);
+    if (!found) continue;
+    const source = baseName(root) + "/" + found.path;
+    sources.push(source);
+    let list: any[];
+    try {
+      const parsed = JSON.parse(found.text.replace(/^\uFEFF/, ""));
+      list = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.tasks) ? parsed.tasks : []);
+    } catch (e) {
+      throw new Error(source + " is not valid JSON: " + String(e));
+    }
+    for (const t of list) {
+      if (!t || typeof t.label !== "string" || !t.label) continue;
+      tasks.push({
         label: String(t.label),
         command: typeof t.command === "string" ? t.command : undefined,
         args: Array.isArray(t.args) ? t.args.map(String) : undefined,
@@ -75,9 +90,10 @@ export async function loadTasks(): Promise<{ tasks: TaskDef[]; source: string }>
         group: typeof t.group === "string" ? t.group : undefined,
         isDefault: !!t.isDefault,
         timeoutMs: typeof t.timeoutMs === "number" ? t.timeoutMs : undefined,
-      }));
-    return { tasks, source: found.path };
-  } catch (e) {
-    throw new Error("tasks.json is not valid JSON: " + String(e));
+        root,
+        source,
+      });
+    }
   }
+  return { tasks, source: sources.join(", ") };
 }

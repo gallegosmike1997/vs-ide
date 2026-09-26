@@ -1,6 +1,40 @@
-# Tauri + React + Typescript
+# VS-IDE
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+An AI-native code editor built with Tauri + React + TypeScript (Monaco editor, real shell/git integration, workspace-aware AI agent).
+
+## Build the Windows desktop app (`.exe`)
+
+The app is a real Tauri desktop app, so it compiles to a normal Windows executable you can pin to the taskbar or launch from a desktop shortcut — no browser or dev server needed.
+
+**Prerequisites:** [Node.js](https://nodejs.org), Rust (`rustup` on Windows), and the usual MSVC C++ build tools (`winget install Microsoft.VisualStudio.Component.VC.Tools.x86.x64` or the "Desktop development with C++" workload).
+
+```powershell
+npm install
+npm run build:exe      # fast path: NSIS installer (portable .exe is built too)
+# or
+npm run build:app      # default tauri build
+```
+
+Artifacts (after the build finishes):
+
+| What | Where |
+| --- | --- |
+| Portable app | `src-tauri\target\release\vs_ide.exe` |
+| Installer (Start Menu + optional desktop shortcut) | `src-tauri\target\release\bundle\nsis\VS-IDE_0.1.0_x64-setup.exe` |
+
+**Make a desktop shortcut (any of these):**
+
+1. Run the installer — it registers VS-IDE in the Start Menu (and offers a desktop shortcut), or
+2. Right-click `vs_ide.exe` → **Send to → Desktop (create shortcut)**, or
+3. One-liner from the repo root (creates `VS-IDE.lnk` on your desktop):
+
+```powershell
+$s = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:USERPROFILE\Desktop\VS-IDE.lnk")
+$s.TargetPath = "$PWD\src-tauri\target\release\vs_ide.exe"
+$s.Save()
+```
+
+`npm run dev:app` still launches the desktop app in dev mode with hot reload, and `npm run dev` runs the web-only dev server.
 
 ## Recommended IDE Setup
 
@@ -35,6 +69,7 @@ Every AI surface returns **real file edits** now, and the IDE reviews them befor
 
 How it works:
 
+- **Workspace-aware AI:** every chat prompt carries the file tree of the whole opened folder (not just the active tab) plus previews of nearby files. If the model needs a file that isn't included, it replies with a fenced `read` block listing paths — the IDE loads those files (open buffers first, then disk inside the workspace scope) and asks the model one more time with the contents attached. The one-click agent buttons use the same protocol, so they can edit files beyond the active one.
 - The model is asked for a strict `json` block of edits: whole-file `replace`, surgical `patch` (`search`/`replace`) or `create`. SEARCH/REPLACE-style answers are understood too, and a plain code block still falls back to rewriting the active file (the old behaviour).
 - The review dialog lists each file with `+adds −removes`, shows a real **before/after diff** (Monaco diff view), lets you deselect files, and refuses edits that cannot be applied (for example patch text that is no longer in the file).
 - **Undo** puts every touched file back the way it was.
@@ -58,6 +93,106 @@ In the desktop app, **File → Add Folder…** opens a *workspace*: a native fol
 Security model: the webview never gets blanket file access. A Rust command (`grant_workspace_scope`) grants the fs scope for **exactly the folder you picked**, a TS-side guard refuses any absolute path outside it, and the capability file allows only read/write/mkdir/stat/remove — no broad `$HOME/**` grant. Closing without a workspace (or the browser dev server) keeps the old in-memory behaviour.
 
 `src/` layout after the refactor: `lib/` holds the pure layers (`aiClient`, `aiEdits`, `fs`, `workspace`), `components/` the UI, `store.ts` the app state primitives.
+
+## Project launcher, context menus and keybindings
+
+### Splash screen / project launcher
+
+The app opens on a launcher instead of a blank editor:
+
+- **Continue in `<last project>`** — reopens the folder you had open when you quit.
+- **Open Folder…** — the native picker.
+- **New Project…** — name + parent folder (typed or browsed) + a starter template (web, Node, Python, React+TS, empty). The folder is created on disk by a Rust command and opened straight away.
+- **Recent projects** — the last 10 folders, newest first, with a forget ✕.
+- Two switches: *always reopen my last project* (skips the launcher next time) and *clean up build junk on startup*.
+- `Esc` skips, `Enter` creates. Re-open it any time with **F1** or **File → Project Launcher…**.
+
+State lives in `localStorage` (`src/lib/recentProjects.ts`). Browser dev mode skips the launcher, since there is no project to open there.
+
+### Right-click menus
+
+`src/lib/contextMenu.tsx` provides one themed menu; every surface decides its own items, and any entry can be a *command*, so it shows the user's current shortcut and runs through the same dispatcher as the menu bar (`src/lib/cmdBus.ts`).
+
+| Where | What you get |
+| --- | --- |
+| Editor | Cut/Copy/Paste, Copy Path, Reveal, Go to Line, Find/Replace, Format, Comment, Quick Fix, Rename Symbol, Go to Definition, AI Explain/Fix/Tests, Split, Save, Close |
+| Explorer file | Open, Copy Path/Name, Reveal, New File/Folder, AI Explain/Fix, **Rename…**, **Delete** (writes to disk) |
+| Explorer folder | New File/Folder, Add File/Folder/Repo, Copy Path, Reveal, **Clean Up Build Junk**, Close Folder |
+| Terminal | **Paste** (via the clipboard), Copy Selection, Run Active File, Clear Scrollback, New/Kill Terminal |
+| AI chat bubble | Copy message/last answer/selection, Ask about this, Apply changes, Copy/Re-run proposed commands, Clear conversation |
+| Tab strip | Close / Others / All, Copy Path, Reveal, Split, AI Explain |
+| Bottom panel, status bar, activity bar, AI side bar headers | panel + layout toggles, copy/clear output |
+
+### Menus and shortcuts
+
+`src/lib/commands.ts` is the single registry for every command: its label, its default chord, and the group it belongs to. The menu bar, the right-click menus, the global key handler and the shortcut editor all read it, so nothing can drift apart.
+
+- **File / Edit / Selection / View** were filled out with the VS Code commands that make sense here (New Folder, Save All, Replace in File, comment toggles, duplicate/delete/move line, indent, join lines, sort lines, transform case, multi-cursor, expand/shrink selection, minimap, split editor, panel switches, …) plus a new **Go** menu for the activity bar and housekeeping under **Settings**.
+- **Settings → Keyboard Shortcuts…** (or the `keys` tab) opens the editor: grouped list, search box, click a shortcut and press the new combination. `Esc` cancels, `Del` clears it, the ↺ button restores one default, *Reset all* restores everything. Overrides persist in `localStorage`.
+- Take a chord from another command and it is reassigned, not duplicated — the menu stops advertising it for the old owner.
+
+## Source control (the git tab)
+
+The Source Control activity item is a real SCM view now, one group per open folder:
+
+- **Branch header** with ahead/behind badges, upstream name, a **Sync** button (fetch → fast-forward pull → push) and a `…` menu (commit staged only, fetch, push, new branch, add remote, unstage all, discard all, recent history).
+- **Commit box** (Ctrl+Enter) that stages everything and commits, with a staged-count badge.
+- **Staged Changes / Changes / Conflicted** sections, collapsible, with per-file stage / unstage / discard, stage-all / unstage-all, click to open the file, and a right-click menu.
+- **Recent history** with sha, subject, author and date.
+- "Not a repository" offers **Initialize Repository**; a missing git binary says so.
+
+The Rust side moved from `--porcelain=v1 -uno` (which hid untracked files) to **`--porcelain=v2 --branch`**, so branch, upstream, ahead/behind, renames and conflicts are all decoded, and there are real commands behind it: `git_log`, `git_stage`, `git_discard`, `git_commit`, `git_sync`, `git_fetch`, `git_branch_new`, `git_init`, `git_remote_add`. `git_sync` deliberately refuses a non-fast-forward pull and tells you to merge/rebase instead of silently creating a merge commit. Destructive actions (discard) always confirm first. `src/lib/scm.ts` is the typed wrapper.
+
+## Accounts (Google · GitHub · Microsoft · Facebook)
+
+A **Sign in** chip in the title bar opens the account sheet with one button per provider. The flow is a real OAuth 2.0 + PKCE authorization-code flow with a loopback redirect:
+
+1. PKCE verifier/challenge and a random `state` are generated (`src/lib/accounts.ts`).
+2. A new Rust command `auth_begin` opens the browser and listens on `127.0.0.1` for the redirect — the same approach as `gh auth login`. `std::net` is enough for a one-shot GET, so it needs no extra crate and opens no inbound port beyond loopback. It answers with a small confirmation page and returns the query **plus the exact redirect URI**, which the token exchange has to repeat byte for byte.
+3. The code is swapped for a token (shelling out to `curl`, because Rust can't do TLS with std alone and the token endpoints don't send CORS headers), then the profile is fetched and the token stored in `localStorage`.
+
+**One thing you have to do first:** each provider requires an OAuth app of your own, so you paste its **Client ID** in *OAuth app credentials* (with a link to each provider's developer console). Buttons read "Client ID needed" until then rather than pretending. Facebook also needs the **App secret** because its token endpoint does not support PKCE. Tokens live only in this app's local storage on this machine, and they are not yet used for anything — this is the identity foundation, not a data pipe.
+
+## Navigation, the command palette and project health
+
+### Command palette (Ctrl+K / Ctrl+Shift+P)
+
+One quick-open box, two modes: **files** by default, **commands** behind `>`. The command list *is* the registry (`src/lib/commands.ts`), so every File / Edit / Selection / View / Go item is reachable by name, grouped, and shows your current binding. Typing something that matches no file asks the AI instead of doing nothing. Matching is a small fuzzy scorer (`src/lib/fuzzy.ts`) with word-start and consecutive-run bonuses — the same matcher drives Go to Symbol.
+
+### Breadcrumbs + Go to Symbol (Ctrl+Shift+O)
+
+The bar under the tab strip is now real: workspace root → path segments → **the symbol chain around your cursor**. Click a segment to reveal the file, click a symbol to jump to it. `Ctrl+Shift+O` opens a fuzzy symbol picker for the active file (the helpers in `src/lib/symbols.ts` were written for this and finally have a home).
+
+### Selection-aware AI
+
+Right-click a selection in the editor and you get **Explain / Review / Document Selection** next to the file-level actions. Only shown when something is actually selected; the selection is attached to the prompt and the answer lands in the Output panel.
+
+### Project health panel
+
+A new card in the AI side bar: how much disk the project uses, how many files, the biggest folders as bars, the last cleanup result broken down by step, plus **Clean up** and **Preview** buttons. Backed by a new Rust command `workspace_usage`, so the housekeeping feature is something you can *see* instead of a menu item you never find.
+
+## Offline editor (no CDN)
+
+`@monaco-editor/react` loads Monaco from jsdelivr on first use, which meant the packaged app needed the internet — and ran a different version (0.55.1) than the one in `package.json` (0.56.0). `src/lib/monacoSetup.ts` now bundles Monaco with the app and wires the five language workers (editor, TypeScript, JSON, CSS, HTML) through `MonacoEnvironment.getWorker`, so the editor works fully offline and the version matches. The workers are referenced by *relative* path on purpose: monaco's `exports` map does not expose those deep ESM paths, so the bare `monaco-editor/...?worker` specifier does not resolve.
+
+## Housekeeping (`tools/vs_ide_clean.py`)
+
+A Python script that keeps a workspace from turning into a multi-GB dump. It removes build output nobody will use again (`src-tauri/target/debug`, `dist`, `coverage`, `.vite`, `node_modules/.cache`, `*.tsbuildinfo`), prunes stale **AI checkpoint refs** in `.git` (each one pins a full snapshot — these are the biggest hidden cost) and then repacks, sweeps junk by name (`*.log`, `*.bak`, `*.tmp`, `Thumbs.db`, `__pycache__`, `*.pyc`, …) and clears the app's own `%TEMP%\vs-ide-run` leftovers.
+
+Safety: source files are never touched, nothing inside `.git` is hand-deleted (`git gc` does the work), locked files (a running `.exe`) are skipped and reported, `--dry-run` really is inert, and the exit code is 0 even on error so it can never break a build.
+
+```bash
+python tools/vs_ide_clean.py                    # full clean of this folder
+python tools/vs_ide_clean.py --dry-run         # report only
+python tools/vs_ide_clean.py --quick            # startup mode
+npm run clean:workspace                        # same, via npm
+npm run housekeeping                           # node wrapper (never fails the build)
+```
+
+It runs on every start from two directions:
+
+- **From source** — `predev` / `prebuild` in `package.json` call `tools/run-clean.mjs`, which finds Python (`py -3`, `python`, `python3`) and skips quietly if there is none. Startup mode only drops `target/debug` when it is more than a day old, so `tauri dev` is not forced into a full rebuild every launch.
+- **From the app** — the Rust command `run_housekeeping` finds a checkout copy of the script next to the exe, otherwise writes the copy **embedded in the binary** (`include_str!`) to `%TEMP%` and runs it, returning a report. The launcher runs it in the background for the project you just opened, and **Settings → Housekeeping: Run Now / Preview** runs it on demand. Only the app's own projects are cleaned — never `src-tauri/target/release`, which holds the shipped `.exe`.
 
 ## Puter auth token (no sign-in popup)
 

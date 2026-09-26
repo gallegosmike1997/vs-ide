@@ -4,11 +4,20 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "housekeeping": "node tools/run-clean.mjs",
+    "housekeeping:quick": "node tools/run-clean.mjs --quick",
+    "predev": "node tools/run-clean.mjs --quick",
     "dev": "vite",
+    "prebuild": "node tools/run-clean.mjs --quick",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "clean:workspace": "python tools/vs_ide_clean.py",
+    "clean:workspace:dry": "python tools/vs_ide_clean.py --dry-run",
     "tauri": "tauri",
-    "test": "tsx test/normalizePlanResult.harness.ts"
+    "dev:app": "tauri dev",
+    "build:app": "tauri build",
+    "build:exe": "tauri build --bundles nsis",
+    "test": "tsx test/normalizePlanResult.harness.ts && tsx test/commands.harness.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

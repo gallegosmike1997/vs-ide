@@ -1,6 +1,7 @@
 import { Bell, GitBranch, XCircle, CheckCircle2, WifiOff, Wifi } from "lucide-react";
 import type { Toast } from "../store";
 import { useLLMConfig, useLLMStatus } from "../lib/aiClient";
+import { showContextMenu } from "../lib/contextMenu";
 type Props = {
   language: string; problems: number; toasts: Toast[]; onDismiss: (id: number) => void;
   onOpenProblems: () => void; onOpenSettings: () => void; line: number; col: number;
@@ -20,7 +21,24 @@ export default function StatusBar({ language, problems, toasts, onDismiss, onOpe
           </div>
         ))}
       </div>
-      <div className="statusbar">
+      <div className="statusbar" onContextMenu={(e) => showContextMenu(e, [
+        { label: "Terminal", command: "toggle-terminal" },
+        { label: "Problems", command: "toggle-problems" },
+        { label: "Output", command: "toggle-output" },
+        { label: "AI Actions", command: "toggle-actions" },
+        { label: "Debug", command: "toggle-debug" },
+        { sep: true },
+        { label: "Side Bar", command: "toggle-sidebar" },
+        { label: "AI Side Bar", command: "toggle-rightbar" },
+        { label: "Bottom Panel", command: "toggle-dock" },
+        { sep: true },
+        { label: "Word Wrap", command: "wordwrap" },
+        { label: "Light / Dark Theme", command: "toggle-theme" },
+        { label: "Zen Mode", command: "zen" },
+        { sep: true },
+        { label: "Run Housekeeping", command: "run-cleanup" },
+        { label: "Settings", command: "settings" },
+      ], "Status bar")}>
         <span className="status-item"><GitBranch size={12} /> main</span>
         <span className="status-item clickable" onClick={onOpenProblems}><XCircle size={12} color={problems > 0 ? "#ff5d5d" : "#34d399"} /> {problems} problems</span>
         <span className="status-item">Ln {line}, Col {col}</span>

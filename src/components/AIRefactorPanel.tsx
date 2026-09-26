@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ArrowRight, Loader2, Wand2 } from "lucide-react";
 import { useLLMCall } from "../lib/aiClient";
 import { Markdown } from "./Markdown";
-export default function AIRefactorPanel({ code, onToast }: { code: string; onToast: (t: string, b?: string) => void }) {
+export default function AIRefactorPanel({ code, onToast, embedded = false }: { code: string; onToast: (t: string, b?: string) => void; embedded?: boolean }) {
   const [out, setOut] = useState("");
   const { loading, run } = useLLMCall();
   const preview = code.length > 140 ? code.slice(0, 140) + "…" : code;
@@ -12,8 +12,8 @@ export default function AIRefactorPanel({ code, onToast }: { code: string; onToa
     onToast("Refactor ideas ready");
   }
   return (
-    <div className="glass" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
-      <div className="panel-header"><span>Refactor</span><span className="badge badge-accent">AI</span></div>
+    <div className={embedded ? "" : "glass"} style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      {!embedded && <div className="panel-header"><span>Refactor</span><span className="badge badge-accent">AI</span></div>}
       <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div className="card truncate" style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{preview || "(empty file)"}</div>
         <button className="btn btn-primary btn-sm" disabled={loading} onClick={suggest}>

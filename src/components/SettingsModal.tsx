@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { Clock, CloudLightning, Loader2, LogIn, Plug, RefreshCw, Trash2, Wifi, WifiOff, X } from "lucide-react";
 import { PROVIDER_GROUPS, PROVIDER_PRESETS, activateFreeCloud, checkLLM, connectPuterNow, getLLMConfig, isPuterToken, listModels, puterAuthState, saveLLMConfig } from "../lib/aiClient";
 import { useLLMConfig, useLLMStatus, type LLMProvider } from "../lib/aiClient";
-export default function SettingsModal({ open, onClose, fontSize, setFontSize, onToast, initialTab }: {
+import { COMMANDS, hintFor } from "../lib/commands";
+export default function SettingsModal({ open, onClose, fontSize, setFontSize, onToast, onOpenShortcuts, initialTab }: {
   open: boolean; onClose: () => void; fontSize: number; setFontSize: (n: number) => void;
   onToast: (t: string, b?: string) => void; initialTab?: "llm" | "editor" | "keys";
+  /** Hands over to the shortcut editor (the "keys" tab is a doorway to it). */
+  onOpenShortcuts: () => void;
 }) {
   const [llm, setLlm] = useLLMConfig();
   const status = useLLMStatus();
@@ -172,10 +175,21 @@ export default function SettingsModal({ open, onClose, fontSize, setFontSize, on
             <div style={{ display: "flex", justifyContent: "flex-end" }}><button className="btn btn-primary btn-sm" onClick={onClose}>Done</button></div>
           </div>)}
           {tab === "keys" && (<div style={{ fontSize: 12.5, color: "var(--text-1)", display: "flex", flexDirection: "column", gap: 8 }}>
-            {[["Ctrl+K", "Command palette / Ask AI"], ["Ctrl+S", "Save active file"], ["Ctrl+N", "New file"], ["Ctrl+O", "Add file from disk"], ["Ctrl+G", "Go to line"]].map(([k, v]) => (
-              <div key={k} style={{ display: "flex", gap: 10, alignItems: "center" }}><span className="kbd">{k}</span><span>{v}</span></div>
-            ))}
-            <div style={{ display: "flex", justifyContent: "flex-end" }}><button className="btn btn-primary btn-sm" onClick={onClose}>Done</button></div>
+            <div style={{ color: "var(--text-2)" }}>
+              Every command in the File / Edit / Selection / View / Go menus can be rebound here. Your
+              shortcuts are stored with the app and apply to the menu bar and the right-click menus.
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              {COMMANDS.filter((c) => c.keys?.length).slice(0, 6).map((c) => (
+                <span key={c.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span className="kbd">{hintFor(c.id)}</span><span>{c.label}</span>
+                </span>
+              ))}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button className="btn btn-sm btn-ghost" onClick={onClose}>Close</button>
+              <button className="btn btn-primary btn-sm" onClick={() => { onClose(); onOpenShortcuts(); }}>Edit shortcuts…</button>
+            </div>
           </div>)}
         </div>
       </div>

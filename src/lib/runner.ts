@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { currentRoot, isDesktop, hasWorkspace, writeWorkspaceFile } from "./workspace";
+import { currentRoot, isDesktop, hasWorkspace, rootFor, writeWorkspaceFile } from "./workspace";
 import type { TabDef } from "../store";
 
 // ---------------------------------------------------------------------------
@@ -159,8 +159,9 @@ export function resetRunnerCaches(): void {
   shellCache = null;
 }
 
-export async function runShell(cmd: string, timeoutMs = 20000, shell?: string): Promise<RunResult> {
-  const cwd = currentRoot();
+export async function runShell(cmd: string, timeoutMs = 20000, shell?: string, cwdOverride?: string | null): Promise<RunResult> {
+  // cwdOverride: undefined = primary root (default), null = app dir, string = that folder.
+  const cwd = cwdOverride !== undefined ? cwdOverride : currentRoot();
   const raw = await invoke<RawRun>("run_command", {
     cmd,
     cwd: cwd ?? null,
@@ -168,6 +169,17 @@ export async function runShell(cmd: string, timeoutMs = 20000, shell?: string): 
     shell: shell ?? selectedShell(),
   });
   return normRun(raw);
+}
+
+/** Reveal a path in the OS file manager (desktop only). Uses the shell we
+ *  already have instead of a new plugin: `explorer /select,` on Windows. */
+export async function revealInFolder(path: string): Promise<boolean> {
+  if (!canRunReal() || !path) return false;
+  const cmd = navigator.platform.toLowerCase().includes("win")
+    ? `explorer /select,"${path.replace(/[\\/]+$/, "")}"`
+    : `xdg-open "${/^\//.test(path) ? path : (currentRoot() ?? "") + "/" + path}"`;
+  const r = await runShell(cmd, 15000);
+  return r.ok;
 }
 
 /** Write editor content to a temp file so unsaved buffers can be executed. */
@@ -197,7 +209,8 @@ export async function runActiveFile(tab: TabDef): Promise<{ result: RunResult | 
     path = toNativePath(await writeTempFile(name, tab.content));
   }
   const command = runner.build(path);
-  const result = await runShell(command, 60000);
+  // Workspace files run in the root that CONTAINS them (multi-root aware).
+  const result = await runShell(command, 60000, undefined, rootFor(tab.absPath));
   return { result, command };
 }
 

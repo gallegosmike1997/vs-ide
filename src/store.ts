@@ -1,15 +1,37 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 export type Toast = { id: number; title: string; body?: string; kind?: "info" | "ok" | "warn" | "error" };
 export type TabDef = { id: string; label: string; language: string; content: string; dirty?: boolean; path?: string; absPath?: string };
-export type Activity = "explorer" | "search" | "source-control" | "outline" | "tasks" | "chat" | "refactor" | "debug" | "project";
+export type AgentMode = "idea" | "think" | "do";
+export type ApprovalMode = "each" | "auto" | "never";
+export type Activity = "explorer" | "search" | "source-control" | "outline" | "tasks" | "build" | "fusion";
 export type DockTab = "terminal" | "search" | "actions" | "problems" | "output" | "debug";
 /** One visible editor pane with its own tab strip + active tab (split editor). */
 export type EditorGroup = { id: string; tabIds: string[]; activeId: string | null };
 export type MenuAction =
-  | "new-file" | "open-file" | "open-folder" | "open-repo" | "save" | "save-all" | "close-tab" | "close-all"
-  | "palette" | "goto-line" | "find" | "toggle-theme" | "toggle-terminal" | "toggle-debug" | "toggle-output" | "toggle-problems" | "toggle-actions"
-  | "undo" | "redo" | "cut" | "copy" | "paste" | "select-all" | "format" | "comment" | "fold" | "unfold" | "wordwrap"
-    | "explain" | "fix" | "tests" | "settings" | "shortcuts" | "about" | "close-workspace";
+  // ---- File -------------------------------------------------------------
+  | "splash" | "new-file" | "new-folder" | "open-file" | "open-folder" | "open-repo"
+  | "save" | "save-all" | "close-tab" | "close-others" | "close-all" | "reopen-tab"
+  | "copy-path" | "reveal-file" | "close-workspace" | "fusion"
+  // ---- Edit -------------------------------------------------------------
+  | "undo" | "redo" | "cut" | "copy" | "paste" | "find" | "find-replace" | "find-next"
+  | "find-previous" | "goto-line" | "format" | "comment" | "comment-block" | "duplicate-line"
+  | "delete-line" | "move-line-up" | "move-line-down" | "indent" | "outdent" | "join-lines"
+  | "trim-whitespace" | "sort-lines-up" | "sort-lines-down" | "transform-upper" | "transform-lower"
+  // ---- Selection --------------------------------------------------------
+  | "select-all" | "select-line" | "expand-selection" | "shrink-selection"
+  | "add-cursor-next" | "add-cursor-below" | "add-cursor-above"
+  // ---- View -------------------------------------------------------------
+  | "palette" | "quick-open" | "goto-symbol" | "toggle-theme" | "wordwrap" | "fold" | "unfold"
+  | "toggle-minimap" | "toggle-line-numbers" | "split-right" | "close-group"
+  | "toggle-sidebar" | "toggle-rightbar" | "toggle-dock" | "zen"
+  | "zoom-in" | "zoom-out" | "zoom-reset"
+  | "toggle-terminal" | "toggle-problems" | "toggle-output" | "toggle-actions" | "toggle-debug"
+  // ---- Go (activity bar) ------------------------------------------------
+  | "activity-explorer" | "activity-search" | "activity-source-control" | "activity-outline"
+  | "activity-tasks" | "activity-build" | "activity-fusion"
+  // ---- AI, run and app --------------------------------------------------
+  | "explain" | "fix" | "tests" | "run-file" | "settings" | "shortcuts" | "about"
+  | "accounts" | "run-cleanup" | "clean-preview";
 export function langFromName(name: string): string {
   const n = name.toLowerCase();
   if (n.endsWith(".tsx") || n.endsWith(".ts") || n.endsWith(".mts")) return "typescript";
@@ -50,12 +72,48 @@ export const STARTER_FILES: TabDef[] = [
   { id: "main", label: "main.tsx", language: "typescript", content: "import App from './App';\n// entry point (mocked)\nconsole.log('boot');\n" },
   { id: "api", label: "api.ts", language: "typescript", content: "export async function fetchUser(id: string) {\n  const res = await fetch(`/api/users/${id}`);\n  if (!res.ok) throw new Error('fetch failed');\n  return res.json();\n}\n" },
 ];
+// Session persistence: restore tabs/panes across reloads (quota-safe).
+const SESSION_KEY = "vs-ide-session";
+function loadSession(): { tabs: TabDef[]; activeId: string | null; groups: EditorGroup[] } | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!Array.isArray(s?.tabs) || !s.tabs.length) return null;
+    const tabs: TabDef[] = s.tabs
+      .filter((t: any) => t && typeof t.id === "string" && typeof t.label === "string" && typeof t.content === "string")
+      .map((t: any) => ({ ...t, language: typeof t.language === "string" ? t.language : langFromName(t.label) }));
+    if (!tabs.length) return null;
+    const ids = new Set(tabs.map((t) => t.id));
+    const activeId = typeof s.activeId === "string" && ids.has(s.activeId) ? s.activeId : tabs[0].id;
+    let groups: EditorGroup[] = Array.isArray(s.groups)
+      ? s.groups
+          .filter((g: any) => g && typeof g.id === "string" && Array.isArray(g.tabIds))
+          .map((g: any): EditorGroup => {
+            const tabIds = g.tabIds.filter((x: any) => ids.has(x));
+            return { id: g.id, tabIds, activeId: ids.has(g.activeId) ? g.activeId : tabIds[0] ?? null };
+          })
+          .filter((g: EditorGroup) => g.tabIds.length > 0)
+      : [];
+    if (!groups.length) groups = [{ id: "group-0", tabIds: tabs.map((t) => t.id), activeId }];
+    return { tabs, activeId, groups };
+  } catch { return null; }
+}
 export function useTabs() {
-  const [tabs, setTabs] = useState<TabDef[]>(STARTER_FILES);
-  const [activeId, setActiveId] = useState<string | null>("app");
+  const [session] = useState(loadSession); // lazy → parsed once per mount
+  const [tabs, setTabs] = useState<TabDef[]>(() => session?.tabs ?? STARTER_FILES);
+  const [activeId, setActiveId] = useState<string | null>(() => session?.activeId ?? "app");
   // Split-editor panes: each group has its own tab strip + active tab.
   // Groups only hold tab ids — `tabs` stays the single source of content truth.
-  const [groups, setGroups] = useState<EditorGroup[]>([{ id: "group-0", tabIds: ["app"], activeId: "app" }]);
+  const [groups, setGroups] = useState<EditorGroup[]>(() => session?.groups ?? [{ id: "group-0", tabIds: ["app"], activeId: "app" }]);
+  // Persist the session (debounced) so reloads come back exactly as left.
+  useEffect(() => {
+    const h = setTimeout(() => {
+      try { localStorage.setItem(SESSION_KEY, JSON.stringify({ tabs, activeId, groups })); }
+      catch { /* quota exceeded or storage blocked — session restore is best-effort */ }
+    }, 600);
+    return () => clearTimeout(h);
+  }, [tabs, activeId, groups]);
   const [focusedGroupId, setFocusedGroupId] = useState<string>("group-0");
   const focusedRef = useRef(focusedGroupId);
   focusedRef.current = focusedGroupId;

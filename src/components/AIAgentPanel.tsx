@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Check, ListChecks, Loader2, Sparkles, Undo2, Wand2 } from "lucide-react";
+import type { AgentMode } from "../store";
 
 /** One-click "implement this" presets. Each becomes a full agent prompt. */
 const TASKS = [
@@ -16,28 +17,41 @@ const TASKS = [
  * The agent buttons: pick a task (or type one), the model returns real file
  * edits, and the user reviews the diff before anything is written.
  */
-export default function AIAgentPanel({ busy, onImplement, pending, applied, onReview, onUndo }: {
+export default function AIAgentPanel({ busy, onImplement, pending, applied, onReview, onUndo, mode = "think" }: {
   busy: boolean;
   onImplement: (task: string, auto: boolean) => void;
   pending?: number;
   applied?: boolean;
   onReview?: () => void;
   onUndo?: () => void;
+  /** Idea & Think lock the panel: buttons stay disabled until the user flips Mode → Do. */
+  mode?: AgentMode;
 }) {
   const [auto, setAuto] = useState(false);
   const [free, setFree] = useState("");
-  function fire(task: string) { if (task.trim() && !busy) onImplement(task.trim(), auto); }
+  const locked = mode !== "do";
+  function fire(task: string) { if (task.trim() && !busy && !locked) onImplement(task.trim(), auto); }
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span className="badge badge-accent"><Sparkles size={11} /> AI agent</span>
-        <label style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--text-2)", display: "flex", gap: 6, alignItems: "center" }}>
-          <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> apply automatically
-        </label>
+        <span
+          className={"badge " + (locked ? (mode === "idea" ? "badge-accent" : "badge-warn") : "badge-ok")}
+          title="Change via the Mode toggle (Idea / Think / Do) in the top toolbar"
+        >
+          {mode === "idea" ? "Idea · plan only" : mode === "think" ? "Think · read only" : "Do · can write"}
+        </span>
+        {!locked && (
+          <label style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--text-2)", display: "flex", gap: 6, alignItems: "center" }}>
+            <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> apply automatically
+          </label>
+        )}
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         {TASKS.map((t) => (
-          <button key={t.id} className="btn btn-sm" disabled={busy} title={t.prompt} onClick={() => fire(t.prompt)}>
+          <button key={t.id} className="btn btn-sm" disabled={busy || locked}
+            title={locked ? "Switch to Do mode (top toolbar) to let the AI write changes." : t.prompt}
+            onClick={() => fire(t.prompt)}>
             {busy ? <Loader2 size={12} className="spin" /> : <Wand2 size={12} />} {t.label}
           </button>
         ))}
@@ -48,7 +62,7 @@ export default function AIAgentPanel({ busy, onImplement, pending, applied, onRe
           placeholder="Implement a change… e.g. “add retry with exponential backoff”"
           onKeyDown={(e) => { if (e.key === "Enter") { fire(free); setFree(""); } }}
         />
-        <button className="btn btn-sm btn-primary" disabled={busy || !free.trim()} onClick={() => { fire(free); setFree(""); }}>
+        <button className="btn btn-sm btn-primary" disabled={busy || locked || !free.trim()} title={locked ? "Switch to Do mode (top toolbar) first." : undefined} onClick={() => { fire(free); setFree(""); }}>
           {busy ? <Loader2 size={12} className="spin" /> : <Sparkles size={12} />} Implement
         </button>
       </div>
@@ -62,7 +76,9 @@ export default function AIAgentPanel({ busy, onImplement, pending, applied, onRe
         </div>
       ) : (
         <div style={{ fontSize: 11.5, color: "var(--text-2)", display: "flex", gap: 6, alignItems: "center" }}>
-          <Check size={11} /> The AI returns real file edits — you see the diff before anything is written.
+          <Check size={11} /> {locked
+            ? "Read-only mode — flip Mode → Do in the top toolbar to let the AI write files."
+            : "The AI returns real file edits — you see the diff before anything is written."}
         </div>
       )}
     </div>

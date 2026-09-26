@@ -1,19 +1,112 @@
 /**
- * Single source of truth for the editor's Monaco theme: maroon / gold / platinum.
+ * Single source of truth for the editor's Monaco themes: royal-blue "idea",
+ * royal-purple "think", and the maroon / gold / platinum "do" cockpit.
  *
  * Registered on every Monaco instance (the main editor and the AI diff viewer
  * each get their own `monaco` object), so `defineTheme` is idempotent by design.
  */
-export const MONACO_THEME = "mzsg-maroon";
+import type { AgentMode } from "../store";
 
-/** Dark maroon cockpit: gold keywords, platinum text, deep-maroon chrome. */
-export function applyMonacoTheme(monaco: any): void {
+export const MONACO_THEME = "mzsg-maroon";
+export const MONACO_THEME_THINK = "mzsg-think";
+export const MONACO_THEME_IDEA = "mzsg-idea";
+
+/** Which registered theme name a mode should use. */
+export function themeNameFor(mode: AgentMode): string {
+  if (mode === "think") return MONACO_THEME_THINK;
+  if (mode === "idea") return MONACO_THEME_IDEA;
+  return MONACO_THEME;
+}
+
+/** Royal-blue token colours for IDEA mode. */
+const IDEA_FG: Record<string, string> = {
+  e9c46a: "60a5fa",
+  f9e7a8: "93c5fd",
+  ffd98e: "bfdbfe",
+  d9a441: "3b82f6",
+  f2d9a0: "a5b4fc",
+};
+
+/** Idea mode chrome — royal blue accents. */
+const IDEA_COLORS: Record<string, string> = {
+  "editor.lineHighlightBackground": "#0c1530",
+  "editorLineNumber.activeForeground": "#60a5fa",
+  "editorCursor.foreground": "#93c5fd",
+  "editor.selectionBackground": "#3b82f666",
+  "editor.inactiveSelectionBackground": "#3b82f633",
+  "editor.selectionHighlightBackground": "#3b82f633",
+  "editor.wordHighlightBackground": "#3b82f62e",
+  "editor.findMatchBackground": "#3b82f677",
+  "editor.findMatchHighlightBackground": "#3b82f644",
+  "editorBracketMatch.background": "#3b82f64d",
+  "editorBracketMatch.border": "#60a5fa",
+  "editorGutter.modifiedBackground": "#60a5fa",
+  "editorIndentGuide.activeBackground1": "#1e3a8a",
+  "editorWidget.border": "#60a5fa55",
+  "editorSuggestWidget.border": "#60a5fa55",
+  "editorSuggestWidget.selectedBackground": "#60a5fa66",
+  "editorHoverWidget.border": "#60a5fa55",
+  "editorOverviewRuler.findMatchForeground": "#60a5fa",
+  "scrollbarSlider.background": "#60a5fa55",
+  "scrollbarSlider.hoverBackground": "#60a5fa77",
+  "scrollbarSlider.activeBackground": "#60a5faaa",
+  "input.border": "#60a5fa44",
+  "list.activeSelectionBackground": "#60a5fa66",
+};
+
+/** Royal-purple token colours for THINK mode. */
+const THINK_FG: Record<string, string> = {
+  e9c46a: "a78bfa",
+  f9e7a8: "c4b5fd",
+  ffd98e: "ddd6fe",
+  d9a441: "8b5cf6",
+  f2d9a0: "d8b4fe",
+};
+
+/** Think mode chrome — royal purple accents. */
+const THINK_COLORS: Record<string, string> = {
+  "editor.lineHighlightBackground": "#170f2e",
+  "editorLineNumber.activeForeground": "#a78bfa",
+  "editorCursor.foreground": "#c4b5fd",
+  "editor.selectionBackground": "#8b5cf666",
+  "editor.inactiveSelectionBackground": "#8b5cf633",
+  "editor.selectionHighlightBackground": "#8b5cf633",
+  "editor.wordHighlightBackground": "#8b5cf62e",
+  "editor.findMatchBackground": "#8b5cf677",
+  "editor.findMatchHighlightBackground": "#8b5cf644",
+  "editorBracketMatch.background": "#8b5cf64d",
+  "editorBracketMatch.border": "#a78bfa",
+  "editorGutter.modifiedBackground": "#a78bfa",
+  "editorIndentGuide.activeBackground1": "#4c1d95",
+  "editorWidget.border": "#a78bfa55",
+  "editorSuggestWidget.border": "#a78bfa55",
+  "editorSuggestWidget.selectedBackground": "#a78bfa66",
+  "editorHoverWidget.border": "#a78bfa55",
+  "editorOverviewRuler.findMatchForeground": "#a78bfa",
+  "scrollbarSlider.background": "#a78bfa55",
+  "scrollbarSlider.hoverBackground": "#a78bfa77",
+  "scrollbarSlider.activeBackground": "#a78bfaaa",
+  "input.border": "#a78bfa44",
+  "list.activeSelectionBackground": "#a78bfa66",
+};
+
+/** Define all variants once, then activate the theme for `mode`. */
+export function applyMonacoTheme(monaco: any, mode: AgentMode = "do"): void {
   if (!monaco?.editor?.defineTheme) return;
   try {
-    monaco.editor.defineTheme(MONACO_THEME, {
-      base: "vs-dark",
-      inherit: true,
-      rules: [
+    defineOne(monaco, MONACO_THEME, "do");
+    defineOne(monaco, MONACO_THEME_IDEA, "idea");
+    defineOne(monaco, MONACO_THEME_THINK, "think");
+    monaco.editor.setTheme(themeNameFor(mode));
+  } catch (e) {
+    console.warn("[monacoTheme]", e);
+  }
+}
+
+function defineOne(monaco: any, name: string, mode: "do" | "idea" | "think"): void {
+  const tint = mode === "idea" ? IDEA_COLORS : mode === "think" ? THINK_COLORS : null;
+  const fgMap = mode === "idea" ? IDEA_FG : mode === "think" ? THINK_FG : null;
+  const rules: any[] = [
         { token: "", foreground: "f4e9d8", background: "150a0f" },
         { token: "comment", foreground: "8a6f75", fontStyle: "italic" },
         { token: "keyword", foreground: "e9c46a", fontStyle: "bold" },
@@ -38,8 +131,8 @@ export function applyMonacoTheme(monaco: any): void {
         // Markdown / plain
         { token: "keyword.md", foreground: "e9c46a", fontStyle: "bold" },
         { token: "string.link", foreground: "ffd98e" },
-      ],
-      colors: {
+  ].map((r: any) => (fgMap && r.foreground && fgMap[r.foreground] ? { ...r, foreground: fgMap[r.foreground] } : r));
+  const colors: Record<string, string> = {
         "editor.background": "#150a0f",
         "editor.foreground": "#f4e9d8",
         "editor.lineHighlightBackground": "#1f0d16",
@@ -80,12 +173,8 @@ export function applyMonacoTheme(monaco: any): void {
         "dropdown.background": "#1b0c13",
         "list.hoverBackground": "#2a1620",
         "list.activeSelectionBackground": "#7a0f2b66",
-        "diffEditor.insertedTextBackground": "#57c98a33",
-        "diffEditor.removedTextBackground": "#c2244a44",
-      },
-    });
-    monaco.editor.setTheme(MONACO_THEME);
-  } catch (e) {
-    console.warn("[monacoTheme]", e);
-  }
+    "diffEditor.insertedTextBackground": "#57c98a33",
+    "diffEditor.removedTextBackground": "#c2244a44",
+  };
+  monaco.editor.defineTheme(name, { base: "vs-dark", inherit: true, rules, colors: tint ? { ...colors, ...tint } : colors });
 }

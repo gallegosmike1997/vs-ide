@@ -4,11 +4,17 @@ import ProblemsPanel, { type Problem } from "./ProblemsPanel";
 import DebugAssistant from "./DebugAssistant";
 import type { DockTab } from "../store";
 import type { AiEdit } from "../lib/aiEdits";
-export default function BottomDock({ dock, setDock, code, file, problems, onGotoProblem, output, onToast, onPlan }: {
+import { showContextMenu } from "../lib/contextMenu";
+import { Copy, Eraser } from "lucide-react";
+export default function BottomDock({ dock, setDock, code, file, problems, onGotoProblem, output, onClearOutput, onToast, onPlan, height = 220 }: {
   dock: DockTab; setDock: (d: DockTab) => void; code: string; problems: Problem[]; onGotoProblem: (l: number) => void; output: string;
   onToast: (t: string, b?: string) => void;
   file?: string;
   onPlan?: (reply: string, edits: AiEdit[], task?: string) => void;
+  /** Drag-resizable panel height (px), managed by App. */
+  height?: number;
+  /** Wipe the output log (right-click → Clear Output). */
+  onClearOutput?: () => void;
 }) {
   const tabs: { id: DockTab; label: string; count?: number }[] = [
     { id: "terminal", label: "Terminal" },
@@ -18,7 +24,19 @@ export default function BottomDock({ dock, setDock, code, file, problems, onGoto
     { id: "debug", label: "Debug" },
   ];
   return (
-    <div className="glass" style={{ height: 220, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div className="glass" style={{ height, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}
+      onContextMenu={(e) => showContextMenu(e, [
+        { label: "Terminal", command: "toggle-terminal" },
+        { label: "Problems", command: "toggle-problems" },
+        { label: "Output", command: "toggle-output" },
+        { label: "AI Actions", command: "toggle-actions" },
+        { label: "Debug", command: "toggle-debug" },
+        { sep: true },
+        { label: "Copy Panel Text", icon: <Copy size={13} />, run: () => void navigator.clipboard?.writeText(output || code || "") },
+        { label: "Clear Output", icon: <Eraser size={13} />, disabled: !output, run: onClearOutput },
+        { sep: true },
+        { label: "Hide Panel", command: "toggle-dock" },
+      ], "Bottom panel")}>
       <div className="panel-header">
         <div className="dock-tabs">
           {tabs.map((t) => (

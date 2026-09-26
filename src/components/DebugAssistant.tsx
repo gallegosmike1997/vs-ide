@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Bug, Loader2 } from "lucide-react";
 import { useLLMCall } from "../lib/aiClient";
 import { Markdown } from "./Markdown";
-export default function DebugAssistant({ code, logs, onToast }: { code: string; logs: string; onToast: (t: string, b?: string) => void }) {
+export default function DebugAssistant({ code, logs, onToast, embedded = false }: { code: string; logs: string; onToast: (t: string, b?: string) => void; embedded?: boolean }) {
   const [out, setOut] = useState("");
   const [logText, setLogText] = useState(logs);
   const { loading, run } = useLLMCall();
@@ -12,8 +12,8 @@ export default function DebugAssistant({ code, logs, onToast }: { code: string; 
     onToast("Debug analysis ready");
   }
   return (
-    <div className="glass">
-      <div className="panel-header"><span>Debug</span><span className="badge">AI</span></div>
+    <div className={embedded ? "" : "glass"}>
+      {!embedded && <div className="panel-header"><span>Debug</span><span className="badge">AI</span></div>}
       <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <textarea className="textarea" style={{ minHeight: 56 }} value={logText} onChange={(e) => setLogText(e.target.value)} placeholder="Paste error / logs here…" />
         <button className="btn btn-sm" disabled={loading} onClick={analyze}>

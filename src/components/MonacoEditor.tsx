@@ -1,15 +1,24 @@
 import { useEffect, useRef } from "react";
 import Editor, { type OnMount, type OnChange } from "@monaco-editor/react";
 import { callLLM } from "../lib/aiClient";
+import { applyMonacoTheme, themeNameFor } from "../lib/monacoTheme";
 import type { Problem } from "./ProblemsPanel";
+import type { AgentMode } from "../store";
 type Props = {
-  value: string; language: string; fontSize: number; wordWrap: boolean;
+  value: string; language: string; fontSize: number; wordWrap: boolean; mode: AgentMode;
   onChange: (v: string) => void;
   onCursor: (line: number, col: number) => void;
   onProblems: (p: Problem[]) => void;
   gotoLine: number | null; onGotoDone: () => void;
   findSignal?: number;
   editSignal?: { n: number; cmd: string } | null;
+  /** Show the minimap in the gutter (View → Minimap). */
+  minimap?: boolean;
+  /** App owns the right-click menu so it matches the rest of the IDE. */
+  onContextMenu?: (e: React.MouseEvent) => void;
+  /** Current selection (empty when the cursor is collapsed) — powers the
+   *  "Explain selection" style actions. */
+  onSelection?: (text: string) => void;
 };
 function localChecks(code: string): Problem[] {
   const out: Problem[] = [];
@@ -29,10 +38,14 @@ function localChecks(code: string): Problem[] {
   if (oP !== cP) out.push({ line: lines.length, message: "Paren imbalance: " + oP + " vs " + cP + ".", severity: "error", source: "local" });
   return out.slice(0, 40);
 }
-export default function MonacoEditor({ value, language, fontSize, wordWrap, onChange, onCursor, onProblems, gotoLine, onGotoDone, findSignal, editSignal }: Props) {
+export default function MonacoEditor({ value, language, fontSize, wordWrap, mode, onChange, onCursor, onProblems, gotoLine, onGotoDone, findSignal, editSignal, minimap = true, onContextMenu, onSelection }: Props) {
   const ref = useRef<any>(null);
   const t = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDeco = useRef<string[]>([]);
+  // Kept in a ref so the mount handler can report the selection without
+  // re-registering listeners on every keystroke.
+  const selCb = useRef(onSelection);
+  selCb.current = onSelection;
   async function runAI(code: string) {
     const ed = ref.current;
     onProblems(localChecks(code));
@@ -58,7 +71,16 @@ export default function MonacoEditor({ value, language, fontSize, wordWrap, onCh
   }
   const mount: OnMount = (ed, monaco) => {
     (ref.current as any) = ed; (ed as any)._monaco = monaco;
+    applyMonacoTheme(monaco, mode);
     ed.onDidChangeCursorPosition((e: any) => onCursor(e.position.lineNumber, e.position.column));
+    // Report the selection (empty when collapsed) so the context menu can
+    // offer "Explain selection" only when it makes sense.
+    ed.onDidChangeCursorSelection(() => {
+      const model = ed.getModel();
+      const sel = ed.getSelection();
+      const text = sel && !sel.isEmpty() && model ? model.getValueInRange(sel) : "";
+      selCb.current?.(text);
+    });
     ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => { window.dispatchEvent(new CustomEvent("vs-ide:save")); });
     runAI(value);
   };
@@ -86,24 +108,65 @@ export default function MonacoEditor({ value, language, fontSize, wordWrap, onCh
     try {
       ed.focus();
       const run = (id: string) => { const a = ed.getAction(id); if (a) { void a.run(); return true; } return false; };
-      if (c === "undo") ed.getModel()?.undo();
+      const first = (...ids: string[]) => ids.some(run);
+      // "monaco:<actionId>" lets the context menu run any Monaco action.
+      if (c.startsWith("monaco:")) run(c.slice(7));
+      else if (c === "undo") ed.getModel()?.undo();
       else if (c === "redo") ed.getModel()?.redo();
       else if (c === "cut") run("editor.action.clipboardCutAction");
       else if (c === "copy") run("editor.action.clipboardCopyAction");
       else if (c === "paste") run("editor.action.clipboardPasteAction");
       else if (c === "select-all") run("editor.action.selectAll");
-      else if (c === "format") run("editor.action.formatDocument");
-      else if (c === "comment") run("editor.action.commentLine");
+      else if (c === "format") first("editor.action.formatDocument", "editor.action.formatSelection");
+      else if (c === "comment") first("editor.action.commentLine", "editor.action.blockComment");
+      else if (c === "comment-block") first("editor.action.blockComment", "editor.action.commentLine");
       else if (c === "fold") run("editor.foldAll");
       else if (c === "unfold") run("editor.unfoldAll");
+      else if (c === "find-replace") first("editor.action.startFindReplaceAction", "actions.find");
+      else if (c === "find-next") first("actions.findNextMatchWithSelection", "editor.action.findNext");
+      else if (c === "find-previous") first("actions.findPreviousMatchWithSelection", "editor.action.findPrevious");
+      else if (c === "duplicate-line") first("editor.action.copyLinesDownAction", "editor.action.duplicateSelection");
+      else if (c === "delete-line") first("editor.action.deleteLinesAction", "editor.action.removeLinesDownAction", "editor.action.deleteLines");
+      else if (c === "move-line-up") first("editor.action.moveLinesUpAction", "editor.action.moveLinesUp");
+      else if (c === "move-line-down") first("editor.action.moveLinesDownAction", "editor.action.moveLinesDown");
+      else if (c === "indent") first("editor.action.indentLines", "editor.action.indent");
+      else if (c === "outdent") first("editor.action.outdentLines", "editor.action.outdent");
+      else if (c === "join-lines") first("editor.action.joinLines", "editor.action.joinLinesAction");
+      else if (c === "trim-whitespace") first("editor.action.trimTrailingWhitespace", "editor.action.trimTrailingWhitespaceAction");
+      else if (c === "sort-lines-up") first("editor.action.sortLinesAscending", "editor.action.sortLinesAscendingAction");
+      else if (c === "sort-lines-down") first("editor.action.sortLinesDescending", "editor.action.sortLinesDescendingAction");
+      else if (c === "transform-upper") first("editor.action.transformToUppercase", "editor.action.transformToUppercaseAction");
+      else if (c === "transform-lower") first("editor.action.transformToLowercase", "editor.action.transformToLowercaseAction");
+      else if (c === "expand-selection") first("editor.action.smartSelect.expand", "editor.action.expandSelection");
+      else if (c === "shrink-selection") first("editor.action.smartSelect.shrink", "editor.action.shrinkSelection");
+      else if (c === "add-cursor-next") first("editor.action.insertCursorAtEndOfEachLineSelected", "editor.action.addSelectionToNextFindMatch", "editor.action.insertCursorAtEndOfEachLineSelected");
+      else if (c === "add-cursor-below") first("editor.action.insertCursorBelow", "editor.action.insertCursorAtEndOfEachLineSelected");
+      else if (c === "add-cursor-above") first("editor.action.insertCursorAbove", "editor.action.insertCursorAtStartOfEachLineSelected");
+      else if (c === "select-line") {
+        // No built-in: select the whole line the cursor sits on.
+        const pos = ed.getPosition();
+        const model = ed.getModel();
+        if (pos && model) {
+          const last = model.getLineMaxColumn(Math.min(model.getLineCount(), pos.lineNumber));
+          ed.setSelection({ startLineNumber: pos.lineNumber, startColumn: 1, endLineNumber: pos.lineNumber, endColumn: last });
+          ed.revealLineInCenter(pos.lineNumber);
+        }
+      }
     } catch (e) { console.warn("[edit]", e); }
   }, [editSignal]);
+  // Re-apply the Monaco theme whenever the Think/Do agent mode changes.
+  useEffect(() => {
+    const monaco = (ref.current as any)?._monaco;
+    if (monaco) applyMonacoTheme(monaco, mode);
+  }, [mode]);
   return (
-    <div className="glass" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", padding: 8 }}>
+    <div className="glass" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", padding: 8 }}
+      onContextMenu={onContextMenu}>
       <Editor
-        height="100%" theme="vs-dark" language={language} value={value}
+        height="100%" theme={themeNameFor(mode)} language={language} value={value}
+        beforeMount={(m: any) => applyMonacoTheme(m, mode)}
         onMount={mount} onChange={change}
-        options={{ fontSize, wordWrap: wordWrap ? "on" : "off", minimap: { enabled: true, scale: 1 }, automaticLayout: true, glyphMargin: true, padding: { top: 12 }, scrollBeyondLastLine: false, smoothScrolling: true, cursorSmoothCaretAnimation: "on", renderLineHighlight: "all", bracketPairColorization: { enabled: true } as any, fontLigatures: true, fontFamily: "JetBrains Mono, Cascadia Code, Menlo, monospace" }}
+        options={{ fontSize, wordWrap: wordWrap ? "on" : "off", minimap: { enabled: minimap, scale: 1 }, contextmenu: false, automaticLayout: true, glyphMargin: true, padding: { top: 12 }, scrollBeyondLastLine: false, smoothScrolling: true, cursorSmoothCaretAnimation: "on", renderLineHighlight: "all", bracketPairColorization: { enabled: true } as any, fontLigatures: true, fontFamily: "JetBrains Mono, Cascadia Code, Menlo, monospace" }}
       />
     </div>
   );

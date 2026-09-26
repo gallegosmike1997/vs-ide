@@ -1,11 +1,12 @@
 {
-  "$comment": "Isolated config for running TS test harnesses under Node + ts-node(esm). Do NOT use CommonJS here: the app's lib chain (src/lib/aiClient.ts) reads import.meta.env at module load, which is undefined-but-safe under ESM and throws under CommonJS.",
+  "$comment": "Isolated config for running TS test harnesses under Node + tsx (formerly ts-node esm). Do NOT use CommonJS here: the app's lib chain (src/lib/aiClient.ts) reads import.meta.env at module load, which is undefined-but-safe under ESM and throws under CommonJS. lib must include DOM because the harnesses import the browser-side src/lib sources; vite-env.d.ts provides import.meta.env (vite/client).",
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "node",
+    "ignoreDeprecations": "6.0",
     "target": "ES2020",
-    "lib": ["ES2020"],
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "noEmit": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -14,6 +15,7 @@
     "allowImportingTsExtensions": false
   },
   "include": [
+    "../src/vite-env.d.ts",
     "../src/lib/**/*.ts",
     "../src/lib/**/*.tsx",
     "../src/store.ts",

@@ -3,7 +3,7 @@ import { Loader2, Search } from "lucide-react";
 import { useLLMCall } from "../lib/aiClient";
 import { Markdown } from "./Markdown";
 import type { TabDef } from "../store";
-export default function SemanticSearchPanel({ files, onOpen }: { files: TabDef[]; onOpen: (id: string) => void }) {
+export default function SemanticSearchPanel({ files, onOpen, embedded = false }: { files: TabDef[]; onOpen: (id: string) => void; embedded?: boolean }) {
   const [q, setQ] = useState("");
   const [out, setOut] = useState("");
   const { loading, run } = useLLMCall();
@@ -23,8 +23,8 @@ export default function SemanticSearchPanel({ files, onOpen }: { files: TabDef[]
     setOut(ans);
   }
   return (
-    <div className="glass" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
-      <div className="panel-header"><span>Semantic search</span><span className="badge badge-accent">AI</span></div>
+    <div className={embedded ? "" : "glass"} style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      {!embedded && <div className="panel-header"><span>Semantic search</span><span className="badge badge-accent">AI</span></div>}
       <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ display: "flex", gap: 6 }}>
           <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. login form, API router…" onKeyDown={(e) => { if (e.key === "Enter") search(); }} />

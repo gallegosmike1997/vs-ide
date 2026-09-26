@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { AgentMode } from "../store";
 
 // ---------------------------------------------------------------------------
 // Providers
@@ -453,9 +454,33 @@ export async function callChat(messages: ChatMsg[]): Promise<string> {
   return offlineFallback(ctx) + "\n\n_Detail: " + failures.join(" | ").slice(0, 300) + "_";
 }
 
+// ---------------------------------------------------------------------------
+// Agent mode: "idea" (brainstorm & plan only), "think" (analyses code, no
+// actions), "do" (edits files + runs commands). Fresh installs land on
+// "idea" — the safest rung; a stored value always wins. Read by callLLM.
+// ---------------------------------------------------------------------------
+let _agentMode: AgentMode = (() => {
+  try {
+    const stored = localStorage.getItem("vs-ide-agent-mode") as AgentMode | null;
+    return stored === "idea" || stored === "think" || stored === "do" ? stored : "idea";
+  } catch { return "idea"; } // no localStorage (Node/tests) or storage blocked
+})();
+
+export function setAgentMode(m: AgentMode): void {
+  _agentMode = m;
+  try { localStorage.setItem("vs-ide-agent-mode", m); } catch { /* storage blocked */ }
+}
+export function getAgentMode(): AgentMode { return _agentMode; }
+
 export async function callLLM(prompt: string): Promise<string> {
+  const mode = getAgentMode();
+  const systemPrompt = mode === "do"
+    ? "You are an autonomous coding agent inside an IDE. You can propose file edits using the JSON edit protocol and run shell commands to verify your work. Every action is reviewed before execution."
+    : mode === "idea"
+    ? "You are a product and architecture ideation partner inside an IDE. Brainstorm, design and plan — features, structure, trade-offs, risks and next steps. No file edits, no shell commands; ship ideas and specs, not code."
+    : "You are a senior engineer inside a VS Code-like IDE. Explain your reasoning, show suggested code, but do NOT make file edits or run commands on your own. Be concise, markdown, runnable code blocks when useful.";
   return callChat([
-    { role: "system", content: "You are a senior engineer inside a VS Code-like IDE. Be concise, markdown, runnable code blocks when useful." },
+    { role: "system", content: systemPrompt },
     { role: "user", content: prompt },
   ]);
 }

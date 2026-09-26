@@ -1,5 +1,6 @@
 import type { TabDef } from "../store";
 import { callLLM } from "./aiClient";
+import { READ_PROTOCOL, buildFileTree, loadRequestedFiles, parseReadRequests, stripReadBlocks } from "./aiContext";
 
 // ---------------------------------------------------------------------------
 // AI edits — turning a model answer into real file changes.
@@ -47,17 +48,21 @@ export function buildEditPrompt(task: string, opts: { file?: string; code?: stri
   const { file = "", code = "", files = [] } = opts;
   const truncated = code.length > EDIT_BUDGET;
   const others = files.filter((f) => f.label !== file).slice(0, 10);
+  const tree = files.length ? buildFileTree(files.map((f) => f.label)) : "";
   return [
     "You are an autonomous coding agent working inside an IDE. Implement the task by returning real file edits.",
     "",
     "TASK: " + task,
     "",
+    tree ? "WORKSPACE FILES — the whole opened folder (use these exact names in \"file\"):" : "",
+    tree ? "```\n" + tree + "\n```" : "",
     file ? `ACTIVE FILE (${file})${truncated ? " - TRUNCATED to " + EDIT_BUDGET + " characters" : ""}:` : "",
     file ? "```\n" + code.slice(0, EDIT_BUDGET) + "\n```" : "",
     others.length ? "OTHER OPEN FILES (do not rewrite unless the task needs it): " + others.map((f) => f.label).join(", ") : "",
     "",
     "Start with a 2-4 line markdown summary of what you changed.",
     EDIT_PROTOCOL,
+    READ_PROTOCOL,
     truncated
       ? 'The active file was truncated, so you MUST use action "patch" with "search"/"replace" - never rewrite the whole file.'
       : "",
@@ -67,7 +72,23 @@ export function buildEditPrompt(task: string, opts: { file?: string; code?: stri
 
 /** One call: ask the model to implement `task` and parse the edits it returns. */
 export async function runAgentEdit(task: string, opts: { file?: string; code?: string; files?: TabDef[] } = {}): Promise<{ reply: string; edits: AiEdit[] }> {
-  const reply = await callLLM(buildEditPrompt(task, opts));
+  const prompt = buildEditPrompt(task, opts);
+  let reply = await callLLM(prompt);
+  // Folder-aware follow-up: the model asked to read more workspace files →
+  // load them (buffers first, then disk) and ask ONE more time.
+  const wanted = parseReadRequests(reply);
+  if (wanted.length && opts.files?.length) {
+    const { block, missing } = await loadRequestedFiles(opts.files, wanted);
+    if (block) {
+      reply = await callLLM(
+        prompt +
+          "\n\nFILES YOU REQUESTED:\n\n" + block +
+          (missing.length ? "\n\n(Unavailable paths: " + missing.join(", ") + ")" : "") +
+          "\n\nNow give your final answer to TASK, ending with the ONE json edits block.",
+      );
+    }
+  }
+  reply = stripReadBlocks(reply);
   return { reply, edits: parseAiEdits(reply, opts.file) };
 }
 // ---------------------------------------------------------------------------
@@ -235,6 +256,22 @@ export function describeParseFailure(reply: string): string {
   if (/```diff|^---\s+\S|^\+\+\+\s+\S/m.test(t)) return "The model replied with a unified diff, which is not applied automatically yet - ask again (the JSON edit format is required).";
   if (!t.includes("```")) return "The model answered with plain text and no code block.";
   return "No file edits found in the answer.";
+}
+
+/**
+ * Extract shell commands from ```bash / ```sh / ```shell code blocks in an
+ * AI response. These are proposals the agent wants to RUN (not edit files).
+ * Commands that are pure comments (# …) are skipped.
+ */
+export function extractCommands(reply: string): string[] {
+  const cmds: string[] = [];
+  const re = /```(?:bash|sh|shell)\n([\s\S]*?)```/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(reply)) !== null) {
+    const code = m[1].trim();
+    if (code && !code.startsWith("#")) cmds.push(code);
+  }
+  return cmds;
 }
 
 // ---------------------------------------------------------------------------

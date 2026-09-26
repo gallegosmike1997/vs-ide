@@ -44,8 +44,45 @@
 .term-select { width: auto; max-width: 230px; padding: 4px 8px; font-size: 11.5px; border-radius: 7px; background: rgba(0,0,0,0.34); border: 1px solid var(--border); color: var(--text-0); }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes pop { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes pop { from { opacity: 0; transform: translateY(4px) scale(0.98); } to { opacity: 1; transform: none; } }
 @keyframes blink { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
 @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin 0.9s linear infinite; }
+
+/* ── Idea/Think/Do mode switch: bright flash → settle into the mode's colour ─ */
+@keyframes modeFlash {
+  0% {
+    filter: brightness(3) saturate(1.6);
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.9), 0 0 34px 14px var(--flash-color, rgba(255, 255, 255, 0.8));
+    text-shadow: 0 0 14px #fff;
+  }
+  25% {
+    filter: brightness(1.8) saturate(1.3);
+    box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.25), 0 0 44px 18px var(--flash-color, rgba(255, 255, 255, 0.6));
+  }
+  55% {
+    filter: brightness(1.25);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.10), 0 0 30px 10px var(--flash-color, rgba(255, 255, 255, 0.4));
+  }
+  100% {
+    filter: none;
+    box-shadow: 0 0 16px var(--flash-color, transparent);
+    text-shadow: none;
+  }
+}
+/* Full-screen bloom on mode switch: bright at the toggle, fades to nothing. */
+.mode-flash-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  background: radial-gradient(circle at var(--flash-x, 82%) 4%, var(--flash-color, rgba(255, 255, 255, 0.5)), transparent 55%);
+  animation: modeFlashOut 0.65s ease-out forwards;
+}
+@keyframes modeFlashOut {
+  0% { opacity: 1; }
+  45% { opacity: 0.5; }
+  100% { opacity: 0; }
+}
+
