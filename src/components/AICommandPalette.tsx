@@ -74,6 +74,11 @@ export default function AICommandPalette({ open, onClose, tabs, onOpenFile, onCo
   const current = rows[sel];
   const noneMatch = !isCmd && term && !rows.length;
 
+  // Every other overlay in the app bails out here; without it this box stays
+  // mounted on top of the splash launcher and Escape can never clear it, so
+  // the project picker looks permanently stuck.
+  if (!open) return null;
+
   return (
     <div className="overlay" onClick={onClose}>
       <div className="glass palette" onClick={(e) => e.stopPropagation()}>
