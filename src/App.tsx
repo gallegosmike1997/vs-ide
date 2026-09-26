@@ -853,7 +853,15 @@ export default function App() {
     // Delayed so it can never compete with the first paint, and fire-and-forget
     // so an offline machine simply gets silence.
     const id = window.setTimeout(() => {
-      void checkForUpdate().then((u) => { if (u) setUpdate(u); });
+      void checkForUpdate().then((u) => {
+        if (!u) return;
+        setUpdate(u);
+        // The dialog renders on `updateOpen && update`, so the background check
+        // has to open it as well. Storing the update without opening the dialog
+        // means a found update is silently kept and never shown - the user only
+        // ever sees it if they ask for a check by hand.
+        setUpdateOpen(true);
+      });
     }, 6000);
     return () => window.clearTimeout(id);
   }, []);

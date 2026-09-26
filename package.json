@@ -1,7 +1,7 @@
 {
   "name": "vs-ide",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "housekeeping": "node tools/run-clean.mjs",
@@ -17,6 +17,7 @@
     "dev:app": "tauri dev",
     "build:app": "tauri build",
     "build:exe": "tauri build",
+    "release:manifest": "node tools/make-latest-json.mjs",
     "sign": "pwsh -NoProfile -ExecutionPolicy Bypass -File tools/sign-release.ps1",
     "unblock": "pwsh -NoProfile -ExecutionPolicy Bypass -File tools/unblock.ps1 -AllFiles",
     "package:portable": "pwsh -NoProfile -Command \"Copy-Item src-tauri\\target\\release\\vs_ide.exe dist\\VS-IDE-portable.exe -Force; Compress-Archive -Path dist\\VS-IDE-portable.exe -DestinationPath src-tauri\\target\\release\\bundle\\VS-IDE-portable.zip -Force; Remove-Item dist\\VS-IDE-portable.exe -Force; Write-Host 'portable zip ready (no installer, WebView2 not bundled)'\"",
