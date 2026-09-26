@@ -83,6 +83,22 @@ export const addRemote = (cwd: string, name: string, url: string) =>
 export const diff = (cwd: string, path: string, staged = false) =>
   invoke<string>("git_diff", { cwd, path, staged });
 
+/** How the changes split across the panel's three sections. */
+export type ChangeGroups = { staged: GitChange[]; conflicts: GitChange[]; changes: GitChange[] };
+
+/**
+ * A conflicted file always wins (it can be both staged and dirty), everything
+ * else splits on the index flag. This is the panel's core rule, so it lives
+ * here where a test can reach it instead of inside the component.
+ */
+export function groupChanges(files: GitChange[]): ChangeGroups {
+  return {
+    conflicts: files.filter((f) => f.conflicted),
+    staged: files.filter((f) => f.staged && !f.conflicted),
+    changes: files.filter((f) => !f.staged && !f.conflicted),
+  };
+}
+
 /** One-letter badge + colour for a porcelain code. */
 export function statusColor(code: string): string {
   const c = code.trim();

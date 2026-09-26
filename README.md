@@ -153,6 +153,38 @@ A **Sign in** chip in the title bar opens the account sheet with one button per 
 
 **One thing you have to do first:** each provider requires an OAuth app of your own, so you paste its **Client ID** in *OAuth app credentials* (with a link to each provider's developer console). Buttons read "Client ID needed" until then rather than pretending. Facebook also needs the **App secret** because its token endpoint does not support PKCE. Tokens live only in this app's local storage on this machine, and they are not yet used for anything — this is the identity foundation, not a data pipe.
 
+## Distributing VS-IDE to another machine
+
+`npm run build:exe` produces two installers in `src-tauri\target\release\bundle\`:
+
+| File | Use it for |
+| --- | --- |
+| `nsis\VS-IDE_0.1.0_x64-setup.exe` | People. Per-user install, no admin rights, Start Menu + Desktop shortcuts, proper uninstaller. |
+| `msi\VS-IDE_0.1.0_x64_en-US.msi` | Company machines / GPO / MDM deployment. |
+
+Both are **~210 MB** because the build now embeds the **offline WebView2 installer** (`bundle.windows.webviewInstallMode = offlineInstaller`): a machine that has never seen Edge WebView2 and has no internet can still install and run the app. Tauri has no `zip` bundle target — a portable copy is just `target\release\vs_ide.exe` zipped up, which is the *no-install* option but does **not** carry WebView2.
+
+### Signing
+
+`npm run sign` signs the app binary and both installers with `tools/sign-release.ps1` (signtool from the Windows SDK, falling back to `Set-AuthenticodeSignature`) and prints the resulting signature status for each file. Timestamping is on by default so the signature outlives the certificate.
+
+Two kinds of certificate, with very different reach:
+
+- **The bundled dev certificate** (`tools/vs-ide-dev-signing.pfx`, self-signed) — cryptographically valid and tamper-evident, and any machine that *trusts* it shows a clean publisher. That means the machines you control: import `vs-ide-dev-signing.pfx` into **Trusted Root Certification Authorities** once and the SmartScreen publisher warning disappears. **Do not distribute this to the public** — anyone could sign malware with it.
+- **A real CA certificate** — the only thing that fixes SmartScreen for the public. Register an app at a code-signing CA (DigiCert, Sectigo, GlobalSign, AWS Private CA…), roughly $70–$400/year, and they verify your identity before issuing; allow a few days. An **OV** certificate is enough: Microsoft retired the old "EV gets instant SmartScreen reputation" behaviour in 2021, so EV no longer buys anything extra here. Note that reputation is per-file, so a freshly signed binary can still warn until enough machines have downloaded and run that exact build.
+
+Then: `npm run sign -- -Pfx C:\certs\mzsg.pfx` (it will prompt for the password).
+
+### Mark of the Web
+
+Windows writes a "downloaded from the internet" zone identifier onto **any** file a browser saves — that cannot be prevented from the producing side. Three ways around it, best first:
+
+1. **Download it without a browser.** `curl -o VS-IDE-setup.exe https://…` or `bitsadmin` do not set the zone identifier, so there is nothing to clear.
+2. **Sign it** (above) — a signature is what SmartScreen actually weighs.
+3. **Clear the mark afterwards**: right-click → *Properties* → tick *Unblock*, or `npm run unblock`, or `pwsh tools/unblock.ps1 -Path C:\Users\me\Downloads`.
+
+The bare `vs_ide.exe` needs WebView2 already present; the installers do not.
+
 ## Navigation, the command palette and project health
 
 ### Command palette (Ctrl+K / Ctrl+Shift+P)

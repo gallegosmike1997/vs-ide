@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Terminal } from "xterm";
-import { FitAddon } from "xterm-addon-fit";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardPaste, Copy, Eraser, Play, Plus, X } from "lucide-react";
-import "xterm/css/xterm.css";
+import "@xterm/xterm/css/xterm.css";
 import type { TabDef } from "../store";
 import { showContextMenu } from "../lib/contextMenu";
 import { baseName, currentRoot, currentRoots } from "../lib/workspace";

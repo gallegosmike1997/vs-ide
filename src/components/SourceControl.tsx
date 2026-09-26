@@ -208,9 +208,7 @@ export default function SourceControl({ open, roots, onOpenFile, onToast }: Prop
         {roots.map((root) => {
           const s = statuses[root] || emptyStatus();
           const err = errors[root] || "";
-          const staged = s.files.filter((f) => f.staged);
-          const conflicts = s.files.filter((f) => f.conflicted);
-          const changed = s.files.filter((f) => !f.staged && !f.conflicted);
+          const { staged, conflicts, changes: changed } = scm.groupChanges(s.files);
           const repoLog = logs[root] || [];
           return (
             <div key={root} className="scm-repo">
