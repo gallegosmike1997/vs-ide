@@ -25,3 +25,10 @@ src-tauri/target
 *.njsproj
 *.sln
 *.sw?
+
+# Secrets - NEVER commit these
+# The updater private key can sign an update the app would install, and the dev
+# code-signing PFX should not leave this machine.
+src-tauri/tauri.key
+tools/vs-ide-dev-signing.pfx
+.env.local

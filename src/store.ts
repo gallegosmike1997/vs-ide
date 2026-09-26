@@ -31,7 +31,7 @@ export type MenuAction =
   | "activity-tasks" | "activity-build" | "activity-fusion"
   // ---- AI, run and app --------------------------------------------------
   | "explain" | "fix" | "tests" | "run-file" | "settings" | "shortcuts" | "about"
-  | "accounts" | "run-cleanup" | "clean-preview";
+  | "accounts" | "check-updates" | "auto-update" | "run-cleanup" | "clean-preview";
 export function langFromName(name: string): string {
   const n = name.toLowerCase();
   if (n.endsWith(".tsx") || n.endsWith(".ts") || n.endsWith(".mts")) return "typescript";

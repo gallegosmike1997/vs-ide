@@ -122,6 +122,8 @@ export const COMMANDS: CommandDef[] = [
   // ---- Help / app ---------------------------------------------------------
   { id: "settings", label: "Settings", group: "Help", keys: ["mod+,"] },
   { id: "accounts", label: "Accounts (sign in)…", group: "Help" },
+  { id: "check-updates", label: "Check for Updates…", group: "Help" },
+  { id: "auto-update", label: "Automatic Updates on Launch", group: "Help" },
   { id: "shortcuts", label: "Keyboard Shortcuts…", group: "Help" },
   { id: "run-cleanup", label: "Run Housekeeping Now", group: "Help" },
   { id: "clean-preview", label: "Housekeeping Preview (dry run)", group: "Help" },

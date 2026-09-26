@@ -1,0 +1,133 @@
+        Info Looking up installed tauri packages to check mismatched versions...
+     Running beforeBuildCommand `npm run build`
+[33m[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+[33m[33m[INEFFECTIVE_DYNAMIC_IMPORT] [0msrc/lib/workspace.ts is dynamically imported by src/components/SearchPanel.tsx but also statically imported by src/App.tsx, src/components/AccountsModal.tsx, src/components/FusionPanel.tsx, src/components/MenuBar.tsx, src/components/ProjectHealth.tsx, ..., dynamic import will not move module into another chunk.
+[39m
+[33m[33m[PLUGIN_TIMINGS] [0mJavaScript callbacks ran for 8.9s of this 11.9s build (75%).
+The slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, the time it awaits is included):
+  - plugin vite:asset-import-meta-url transform (15%, 1.7s, 1 call)
+Additional callback time came from the callbacks below and from callbacks under 1s.
+3 callbacks are listed without a time. Their calls overlapped, so the time inside one call includes work from other calls. To find their cost, profile the build with `node --cpu-prof`:
+  - plugin vite:css transform (106 calls)
+  - plugin vite:worker load (5 calls)
+  - plugin vite:worker-import-meta-url transform (4 calls)
+See https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.
+[39m
+   Compiling syn v3.0.6
+   Compiling windows-sys v0.61.2
+   Compiling smallvec v1.16.1
+   Compiling futures-core v0.3.34
+   Compiling tracing-core v0.1.36
+   Compiling ring v0.17.14
+   Compiling getrandom v0.2.17
+   Compiling semver v1.0.28
+   Compiling parking_lot_core v0.9.12
+   Compiling untrusted v0.9.0
+   Compiling zeroize v1.9.0
+   Compiling tracing v0.1.44
+   Compiling parking_lot v0.12.5
+   Compiling rustls-pki-types v1.15.1
+   Compiling http-body v1.1.0
+   Compiling slab v0.4.12
+   Compiling rustls v0.23.45
+   Compiling futures-task v0.3.34
+   Compiling httparse v1.10.1
+   Compiling tower-service v0.3.3
+   Compiling try-lock v0.2.5
+   Compiling subtle v2.6.1
+   Compiling want v0.3.1
+   Compiling futures-channel v0.3.34
+   Compiling windows-strings v0.5.1
+   Compiling windows-result v0.4.1
+   Compiling atomic-waker v1.1.2
+   Compiling windows-registry v0.6.1
+   Compiling sync_wrapper v1.0.2
+   Compiling tower-layer v0.3.3
+   Compiling ipnet v2.12.2
+   Compiling crc32fast v1.5.2
+   Compiling getrandom v0.4.3
+   Compiling futures-sink v0.3.34
+   Compiling synstructure v0.14.0
+   Compiling http-body-util v0.1.5
+   Compiling base64 v0.23.1
+   Compiling fastrand v2.5.0
+   Compiling zip v4.6.1
+   Compiling minisign-verify v0.2.5
+   Compiling zerofrom-derive v0.1.8
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling futures-macro v0.3.34
+   Compiling rustls-webpki v0.103.15
+   Compiling zerofrom v0.1.8
+   Compiling thiserror v2.0.20
+   Compiling socket2 v0.6.5
+   Compiling yoke v0.8.3
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling serde v1.0.229
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_locale_core v2.1.1
+   Compiling icu_collections v2.1.1
+   Compiling mio v1.2.3
+   Compiling jsonptr v0.6.3
+   Compiling indexmap v1.9.3
+   Compiling cargo-platform v0.1.9
+   Compiling json-patch v3.0.1
+   Compiling cargo_metadata v0.19.2
+   Compiling plist v1.8.0
+   Compiling icu_provider v2.1.1
+   Compiling icu_normalizer v2.1.1
+   Compiling icu_properties v2.1.2
+   Compiling cargo_toml v0.22.3
+   Compiling tokio v1.53.1
+   Compiling webview2-com-sys v0.38.2
+   Compiling idna_adapter v1.2.1
+   Compiling idna v1.1.0
+   Compiling dpi v0.1.2
+   Compiling url v2.5.8
+   Compiling winapi-util v0.1.11
+   Compiling urlpattern v0.3.0
+   Compiling schemars v0.8.22
+   Compiling same-file v1.0.6
+   Compiling tauri-utils v2.9.3
+   Compiling walkdir v2.5.0
+   Compiling tao v0.35.3
+   Compiling webview2-com v0.38.2
+   Compiling keyboard-types v0.7.0
+   Compiling futures-util v0.3.34
+   Compiling wry v0.55.1
+   Compiling softbuffer v0.4.8
+   Compiling tauri-build v2.6.3
+   Compiling tauri-plugin v2.6.3
+   Compiling tauri-runtime v2.11.3
+   Compiling tauri-codegen v2.6.3
+   Compiling dirs-sys v0.5.0
+   Compiling dirs v6.0.0
+   Compiling tauri-runtime-wry v2.11.4
+   Compiling muda v0.19.3
+   Compiling serialize-to-javascript v0.1.2
+   Compiling serde_repr v0.1.21
+   Compiling hyper v1.11.1
+   Compiling tower v0.5.3
+   Compiling tokio-rustls v0.26.5
+   Compiling tower-http v0.6.11
+   Compiling hyper-util v0.1.20
+   Compiling tokio-util v0.7.19
+   Compiling rustls-platform-verifier v0.7.1
+   Compiling tempfile v3.27.0
+   Compiling hyper-rustls v0.27.10
+   Compiling reqwest v0.13.5
+   Compiling tauri v2.11.5
+   Compiling tauri-macros v2.6.3
+   Compiling tauri-plugin-fs v2.5.2
+   Compiling tauri-plugin-dialog v2.7.3
+   Compiling tauri-plugin-updater v2.12.0
+   Compiling tauri-plugin-process v2.3.1
+   Compiling vs_ide v0.1.0 (C:\Users\Michael\vs-ide\src-tauri)

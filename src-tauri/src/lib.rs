@@ -1142,6 +1142,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        // In-app updates. Checked in the background on launch; a failure (no
+        // network, no release yet) is swallowed by the caller, so the app never
+        // depends on it.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Only used to relaunch the app after an update has been installed.
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             grant_workspace_scope,
             revoke_workspace_scope,

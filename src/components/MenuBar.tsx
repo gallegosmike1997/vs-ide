@@ -3,6 +3,7 @@ import { Check } from "lucide-react";
 import type { DockTab, MenuAction } from "../store";
 import { hasWorkspace } from "../lib/workspace";
 import { hintFor, useKeybindings } from "../lib/commands";
+import { autoUpdateEnabled } from "../lib/updater";
 
 type Item = { id: MenuAction | "sep"; label?: string; checked?: boolean };
 type Menu = { id: string; label: string; items: Item[] };
@@ -167,8 +168,11 @@ export default function MenuBar({ onAction, dock, wordWrap, minimap, leftVisible
     {
       id: "settings", label: "Settings", items: [
         { id: "settings", label: "LLM + Editor Settings…" },
+        { id: "accounts", label: "Accounts (sign in)…" },
         { id: "shortcuts", label: "Keyboard Shortcuts…" },
         SEP,
+        { id: "check-updates", label: "Check for Updates…" },
+        { id: "auto-update", label: "Automatic Updates on Launch", checked: autoUpdateEnabled() },
         { id: "run-cleanup", label: "Housekeeping: Run Now" },
         { id: "clean-preview", label: "Housekeeping: Preview (dry run)" },
         SEP,

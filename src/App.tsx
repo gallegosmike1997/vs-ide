@@ -38,6 +38,7 @@ import { useCmdBus } from "./lib/cmdBus";
 import { commandForEvent } from "./lib/commands";
 import { cleanupSummary, runCleanup, type CleanupReport } from "./lib/housekeeping";
 import { providerOf, useAccounts } from "./lib/accounts";
+import { autoUpdateEnabled, checkForUpdate, dismissVersion, installUpdate, setAutoUpdate, type UpdateInfo } from "./lib/updater";
 import { forgetProject, getAutoResume, getHousekeeping, loadRecent, rememberProject, type RecentProject } from "./lib/recentProjects";
 import type { Problem } from "./components/ProblemsPanel";
 import { langFromName, useTabs, useTheme, useToasts, STARTER_FILES } from "./store";
@@ -47,7 +48,7 @@ import { downloadTab, importRepoFromGitHub, openFilePicker, openFolderPicker, ru
 import { revealInFolder } from "./lib/runner";
 import { autoDetectLLM, activateFreeCloud, checkLLM, getAgentMode, setAgentMode, useLLMCall } from "./lib/aiClient";
 import { absPathFor, closeWorkspace, createProjectFolder, currentRoot, currentRoots, isDesktop, openWorkspaceAt, pickWorkspace, readWorkspaceTree, removeWorkspaceFile, removeWorkspaceRoot, writeWorkspaceFile } from "./lib/workspace";
-import { Bug, Columns2, FolderKanban, Gauge, MessageSquare, Play, Save, Search, Sparkles, Target, Wand2, X } from "lucide-react";
+import { Bug, Columns2, Download, FolderKanban, Gauge, Loader2, MessageSquare, Play, Save, Search, Sparkles, Target, Wand2, X } from "lucide-react";
 
 // ---- tiny localStorage helpers for the persisted layout --------------------
 const lsNum = (k: string, d: number) => { try { const v = Number(localStorage.getItem(k)); return Number.isFinite(v) && v > 0 ? v : d; } catch { return d; } };
@@ -810,6 +811,12 @@ export default function App() {
     else if (a === "clean-preview") void maybeClean(null, { manual: true, dryRun: true });
     else if (a === "settings") openSettings("llm");
     else if (a === "accounts") setAccountsOpen(true);
+    else if (a === "check-updates") void runUpdateCheck(true);
+    else if (a === "auto-update") {
+      const next = !autoUpdateEnabled();
+      setAutoUpdate(next);
+      toast("Automatic updates " + (next ? "on" : "off"), next ? "VS-IDE will check GitHub for a newer release on launch." : "VS-IDE will only check when you ask.");
+    }
     else if (a === "shortcuts") setShortcutsOpen(true);
     else if (a === "about") setAboutOpen(true);
     else if (a.startsWith("activity-")) {
@@ -836,6 +843,44 @@ export default function App() {
     window.addEventListener("vs-ide:save", onSave as any);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("vs-ide:save", onSave as any); };
   });
+  // ---- Updates: one background check, never on the critical path -----------
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [updating, setUpdating] = useState(false);
+  const [updateOpen, setUpdateOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isDesktop() || !autoUpdateEnabled()) return;
+    // Delayed so it can never compete with the first paint, and fire-and-forget
+    // so an offline machine simply gets silence.
+    const id = window.setTimeout(() => {
+      void checkForUpdate().then((u) => { if (u) setUpdate(u); });
+    }, 6000);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  async function runUpdateCheck(manual: boolean) {
+    if (manual) toast("Checking for updates…", "Looking at the latest GitHub release.");
+    const u = await checkForUpdate({ manual });
+    setUpdate(u);
+    if (manual) {
+      if (u) setUpdateOpen(true);
+      else toast("You are up to date", "No newer release on GitHub.");
+    }
+  }
+
+  async function doInstallUpdate() {
+    if (!update) return;
+    setUpdating(true);
+    try {
+      await installUpdate((done, total) => {
+        if (total) setOutput("update: downloading " + Math.round((done / total) * 100) + "%");
+      });
+    } catch (e) {
+      setUpdating(false);
+      toastErr("Update failed", e instanceof Error ? e.message.slice(0, 160) : String(e).slice(0, 160));
+    }
+  }
+
   // ---- Signed-in account (title-bar chip + Accounts sheet) ---------------
   const accounts = useAccounts();
   const primaryAccount = useMemo(() => {
@@ -1018,6 +1063,40 @@ export default function App() {
       <SettingsModal open={settings} onClose={() => setSettings(false)} fontSize={fontSize} setFontSize={setFontSize} onToast={toast} onOpenShortcuts={() => setShortcutsOpen(true)} initialTab={settingsTab} />
       <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <AccountsModal open={accountsOpen} onClose={() => setAccountsOpen(false)} onToast={toast} />
+      {updateOpen && update && (
+        <div className="overlay" onClick={() => setUpdateOpen(false)}>
+          <div className="glass modal" style={{ width: "min(520px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
+            <div className="panel-header">
+              <span>Update available · {update.version}</span>
+              <button className="icon-btn" onClick={() => setUpdateOpen(false)}><X size={14} /></button>
+            </div>
+            <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12.5 }}>
+              <div style={{ color: "var(--text-2)" }}>
+                You have <b>{update.current}</b>. The release on GitHub is <b>{update.version}</b>
+                {update.date ? " · " + update.date : ""}.
+              </div>
+              {update.body && (
+                <pre className="code-output" style={{ margin: 0, maxHeight: 220, whiteSpace: "pre-wrap", fontSize: 11.5 }}>
+                  {update.body}
+                </pre>
+              )}
+              <div className="acc-note">
+                Signing you out is not needed: the download is verified against the update key built
+                into this app, and it installs in the background before VS-IDE restarts.
+                {" "}It is a ~210 MB download because the installer carries the offline WebView2 runtime.
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button className="btn btn-sm btn-ghost" onClick={() => { dismissVersion(update.version); setUpdateOpen(false); }}>
+                  Not now
+                </button>
+                <button className="btn btn-primary btn-sm" disabled={updating} onClick={() => void doInstallUpdate()}>
+                  {updating ? <Loader2 size={12} className="spin" /> : <Download size={12} />} Download &amp; install
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
       <LlmSetupGuide open={llmGuideOpen} onClose={() => setLlmGuideOpen(false)} onDone={() => { setLlmGuideOpen(false); toast("LLM is online", "Ask anything in AI Chat."); }} />
       <RepoModal open={repoOpen} onClose={() => setRepoOpen(false)} onImport={doImportRepo} busy={repoBusy} />
