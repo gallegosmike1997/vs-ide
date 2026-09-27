@@ -44,9 +44,11 @@ $s.Save()
 
 Open **Settings → LLM Connection** (top-right gear, or the `LLM …` chip in the title bar) and use **Get me online (auto / free cloud)** — it checks your local servers first, then falls back to the free cloud tier.
 
+**Puter is the recommended default.** It is the only tier that needs nothing at all — no API key, no account registration, no local install. Press **Sign in to Puter** once (free account) and 1000+ models become available on your own free allowance. Everything else is an *alternative* you opt into when you already have a key or want everything to run locally.
+
 | Tier | Provider | What you need |
 | --- | --- | --- |
-| Free cloud | **Puter** | Nothing to install. Press **Sign in to Puter** once (free account) — or paste a Puter auth token / set `VITE_PUTER_TOKEN` and skip the popup. Unlocks 1000+ models (`gpt-5-nano`, Claude, Gemini…). |
+| **Recommended** · free cloud | **Puter** | Nothing to install. Press **Sign in to Puter** once (free account) — or paste a Puter auth token / set `VITE_PUTER_TOKEN` and skip the popup. Unlocks 1000+ models (`gpt-5-nano`, Claude, Gemini…). |
 | Local | LM Studio | Start the local server on `:1234`, load a model. |
 | Local | Ollama | `ollama serve` then `ollama pull llama3.1`. |
 | Cloud | Groq / Gemini | Paste a key — both have free tiers. |
@@ -93,6 +95,29 @@ In the desktop app, **File → Add Folder…** opens a *workspace*: a native fol
 Security model: the webview never gets blanket file access. A Rust command (`grant_workspace_scope`) grants the fs scope for **exactly the folder you picked**, a TS-side guard refuses any absolute path outside it, and the capability file allows only read/write/mkdir/stat/remove — no broad `$HOME/**` grant. Closing without a workspace (or the browser dev server) keeps the old in-memory behaviour.
 
 `src/` layout after the refactor: `lib/` holds the pure layers (`aiClient`, `aiEdits`, `fs`, `workspace`), `components/` the UI, `store.ts` the app state primitives.
+
+## Project fusion (combine two projects into one)
+
+**Go → Project Fusion** (the ⧉ icon in the activity bar) merges two project folders into one offline tool. Open your host project plus a second folder, pick a strategy, and generate the plan. Output always lands in **project A** (the host), never in B.
+
+| Strategy | What it produces |
+| --- | --- |
+| **Bridge** | Thin adapter files under `src/fusion/` that call B's entry points by relative path. Nothing is copied. |
+| **Vendor** | Sync scripts that copy B into `vendor/<name>/` at build time, plus one offline launcher. |
+| **Fusion scaffold** | Shared config, launcher and status scripts so both halves run side by side. |
+| **FUSION.md blueprint** | Deterministic markdown: both trees, stats, fit check, roadmap. **No AI needed** — works with zero configuration. |
+
+Nothing is ever written directly from this panel. Everything goes through the same review dialog and pre-save verification gate as every other AI edit.
+
+**Offline fit check.** Before spending an AI request, both projects are compared: primary language, shared languages, dependency overlap, entry points, and **overlapping file paths**. A path present in *both* projects is the dangerous case — whichever half is applied second silently overwrites the first — so collisions are listed in the panel, in `FUSION.md`, and as a hard rule in the prompt telling the model to namespace B's copy instead of replacing A's.
+
+**Swap A/B.** The scan order follows the workspace root order, but fusing in the opposite direction is a completely different plan, so the host and the source can be swapped with one button.
+
+**Dry run (preview).** `previewFusion()` predicts which files a strategy would create or overwrite, entirely offline and free — no AI call. Each path is labelled `NEW` or `OVERWRITE`, and the verdict is `safe` / `caution` / `blocked`. If anything real would be overwritten, the panel demands an explicit confirmation before an AI request is spent. Overwriting `FUSION.md` alone is only `caution` (it is a generated report, so nothing is lost); overwriting a manifest gets its own warning, because a rewritten `package.json` that drops a dependency is the classic way a fusion breaks the host.
+
+**Verify fusion.** After applying, `verifyFusion()` **re-scans from disk** and reports whether the merge actually landed: is `FUSION.md` present, did the planned files get written, is the host entry point still intact, does the source project still exist, and — the real question — is the host actually *wired* to the fusion, or were files merely copied in? It is honest about its limits: the compile check reports `skip`, not `pass`, because structural presence is not a build. Run the host build for a real verdict.
+
+All of this is offline and model-free, including the blueprint path. `test/fusion.harness.ts` covers the collision rules, the preview verdicts and the verifier's pass/warn/fail outcomes.
 
 ## Project launcher, context menus and keybindings
 
@@ -145,13 +170,19 @@ The Rust side moved from `--porcelain=v1 -uno` (which hid untracked files) to **
 
 ## Accounts (Google · GitHub · Microsoft · Facebook)
 
+> **You do not need any of this to use the AI features.** Accounts are for *identity* only. The assistant runs on [Puter](#getting-the-ai-online-pick-one), which needs no OAuth app, no Client ID and no API key. The sheet says so at the top for exactly that reason.
+
 A **Sign in** chip in the title bar opens the account sheet with one button per provider. The flow is a real OAuth 2.0 + PKCE authorization-code flow with a loopback redirect:
 
 1. PKCE verifier/challenge and a random `state` are generated (`src/lib/accounts.ts`).
-2. A new Rust command `auth_begin` opens the browser and listens on `127.0.0.1` for the redirect — the same approach as `gh auth login`. `std::net` is enough for a one-shot GET, so it needs no extra crate and opens no inbound port beyond loopback. It answers with a small confirmation page and returns the query **plus the exact redirect URI**, which the token exchange has to repeat byte for byte.
+2. A new Rust command `auth_begin` opens the browser and listens on `127.0.0.1` for the redirect — the same approach as `gh auth login`. `std::net` is enough for a one-shot HTTP GET, so it needs no extra crate and opens no inbound port beyond loopback. It answers with a small confirmation page and returns the query **plus the exact redirect URI**, which the token exchange has to repeat byte for byte.
 3. The code is swapped for a token (shelling out to `curl`, because Rust can't do TLS with std alone and the token endpoints don't send CORS headers), then the profile is fetched and the token stored in `localStorage`.
 
-**One thing you have to do first:** each provider requires an OAuth app of your own, so you paste its **Client ID** in *OAuth app credentials* (with a link to each provider's developer console). Buttons read "Client ID needed" until then rather than pretending. Facebook also needs the **App secret** because its token endpoint does not support PKCE. Tokens live only in this app's local storage on this machine, and they are not yet used for anything — this is the identity foundation, not a data pipe.
+**One thing you have to do first:** each provider requires an OAuth app of your own, so you paste its **Client ID** in *OAuth app credentials*. Buttons read "Client ID needed" until then rather than pretending. Facebook also needs the **App secret** because its token endpoint does not support PKCE. Tokens live only in this app's local storage on this machine, and they are not yet used for anything — this is the identity foundation, not a data pipe.
+
+**The redirect URI is pinned to port 8977.** Providers validate the redirect URI exactly, so an ephemeral port would change on every launch and a URI you registered would stop matching. The loopback port is therefore fixed, with a free-port fallback if 8977 is busy, and the sheet displays the *exact* URI this machine will use (`auth_redirect_uri`) so there is nothing to guess.
+
+**Outbound links go through `open_external`.** A Tauri webview silently swallows `<a target="_blank">` — the click does nothing and no browser opens. Every outbound link (provider consoles, the docs button, "get a key" in Settings) therefore calls a Rust `open_external` command that hands the URL to the OS, with a new-tab fallback in the browser build. The command only accepts `http`/`https` and rejects newlines and quotes, so a URL can never break out of the `cmd /C start` command line.
 
 ## Distributing VS-IDE to another machine
 

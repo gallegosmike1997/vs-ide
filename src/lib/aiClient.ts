@@ -45,10 +45,18 @@ export const PROVIDER_PRESETS: Record<LLMProvider, Preset> = {
 export const FREE_PROVIDERS: LLMProvider[] = ["puter"];
 export const LOCAL_PROVIDERS: LLMProvider[] = ["lmstudio", "ollama", "custom"];
 export const CLOUD_PROVIDERS: LLMProvider[] = ["openai", "groq", "gemini", "openrouter", "mistral", "deepseek"];
+/**
+ * Puter is the RECOMMENDED default. It is the only tier that needs nothing at
+ * all — no key, no account registration, no local install — just one sign-in,
+ * and it then unlocks 1000+ models on the user's own free allowance. The other
+ * groups still exist (local is genuinely private, cloud may be cheaper), but
+ * they should read as alternatives the user opts into, not the starting point.
+ */
+export const RECOMMENDED_PROVIDER: LLMProvider = "puter";
 export const PROVIDER_GROUPS: { title: string; hint: string; ids: LLMProvider[] }[] = [
-  { title: "Free cloud — no API key", hint: "Puter: one free sign-in popup, or a saved auth token with no popup at all.", ids: FREE_PROVIDERS },
+  { title: "Recommended — free cloud, no API key", hint: "Puter: one free sign-in popup, or a saved auth token with no popup at all. Nothing to install, nothing to register.", ids: FREE_PROVIDERS },
   { title: "Local — private, runs on your machine", hint: "Needs LM Studio or Ollama already running.", ids: LOCAL_PROVIDERS },
-  { title: "Cloud — paste an API key", hint: "Groq + Gemini have free tiers; others are pay-as-you-go.", ids: CLOUD_PROVIDERS },
+  { title: "Alternatives — paste an API key", hint: "Groq + Gemini have free tiers; others are pay-as-you-go.", ids: CLOUD_PROVIDERS },
 ];
 export function isLocalUrl(u: string) { return /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(u); }
 

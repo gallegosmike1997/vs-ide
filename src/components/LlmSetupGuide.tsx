@@ -81,8 +81,8 @@ export default function LlmSetupGuide({ open, onClose, onDone }: {
             {busy ? <Loader2 size={13} className="spin" /> : <CloudLightning size={13} />} Do it for me (auto-detect / free cloud)
           </button>
           {(provider === "puter" || status !== "online") && puterAuthState() !== "signed-in" && (
-            <div className="card" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ flex: 1, fontSize: 12 }}><b>Prefer zero setup?</b> Sign in to Puter once — free account, no API key, 500+ models on your own free allowance.</div>
+            <div className="card" style={{ display: "flex", alignItems: "center", gap: 10, borderColor: "var(--gold)" }}>
+              <div style={{ flex: 1, fontSize: 12 }}><b>Recommended: Puter.</b> One sign-in, no API key, no install, 500+ models on your own free allowance. The other options below need a key or a local server first.</div>
               <button className="btn btn-sm btn-primary" disabled={busy} onClick={doSignIn}>
                 {busy ? <Loader2 size={13} className="spin" /> : <LogIn size={13} />} Sign in to Puter
               </button>

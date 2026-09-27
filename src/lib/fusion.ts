@@ -206,7 +206,29 @@ function profileOf(s: RootScan): string[] {
 }
 
 export type FusionFinding = { kind: "ok" | "info" | "warn"; text: string };
-export type FusionAnalysis = { verdict: string; findings: FusionFinding[] };
+export type FusionAnalysis = { verdict: string; findings: FusionFinding[]; collisions: string[] };
+
+/** Normalise a relative path for collision comparison (slashes, no case). */
+const keyPath = (p: string) => p.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+
+/**
+ * Relative paths that exist in BOTH projects.
+ *
+ * This is the single most destructive thing a fusion can do: whichever half is
+ * applied second silently overwrites the first, and a `.ts` file replacing a
+ * `.ts` file is easy to miss in review. Matching is case-insensitive because
+ * Windows and macOS treat `Button.tsx` and `button.tsx` as the same file.
+ */
+export function findCollisions(a: RootScan, b: RootScan, limit = 12): string[] {
+  const inA = new Set(a.files.map(keyPath));
+  const hits: string[] = [];
+  for (const f of b.files) {
+    const k = keyPath(f);
+    if (inA.has(k)) hits.push(f);
+    if (hits.length >= limit) break;
+  }
+  return hits;
+}
 
 /**
  * Offline fit-check — no model needed. Compares languages, dependency overlap
@@ -217,7 +239,7 @@ export function analyzeFusion(scans: RootScan[]): FusionAnalysis {
   const a = scans[0];
   const b = scans[1];
   const findings: FusionFinding[] = [];
-  if (!a || !b) return { verdict: "Open two projects to analyse the fit.", findings };
+  if (!a || !b) return { verdict: "Open two projects to analyse the fit.", findings, collisions: [] };
   const top = (s: RootScan) => Object.entries(s.languages).sort((x, y) => y[1] - x[1])[0]?.[0] ?? "";
   const mainA = top(a);
   const mainB = top(b);
@@ -246,10 +268,21 @@ export function analyzeFusion(scans: RootScan[]): FusionAnalysis {
   } else {
     findings.push({ kind: "ok", text: `Entry points found — A: ${a.entry}, B: ${b.entry}.` });
   }
+  // Overwriting a file is unrecoverable and invisible in review, so this is the
+  // one finding promoted to a hard rule in the prompt.
+  const collisions = findCollisions(a, b);
+  if (collisions.length) {
+    findings.push({
+      kind: "warn",
+      text: `${collisions.length} path(s) exist in BOTH projects (e.g. ${collisions.slice(0, 3).join(", ")}) — never overwrite: keep A's copy, or move B's to a namespaced path.`,
+    });
+  } else {
+    findings.push({ kind: "ok", text: "No overlapping file paths — a merge cannot silently overwrite existing files." });
+  }
   const verdict = findings.some((f) => f.kind === "warn")
     ? "Complementary but mismatched — use a process-level bridge and pin shared versions."
     : "Strong fit — the two halves can share code directly.";
-  return { verdict, findings };
+  return { verdict, findings, collisions };
 }
 
 /**
@@ -315,6 +348,8 @@ export function buildFusionPrompt(strategy: FusionStrategy, scans: RootScan[], a
     "FIT CHECK (offline analysis):",
     ...analyzeFusion(scans).findings.map((f) => `- [${f.kind}] ${f.text}`),
     "",
+    "OVERLAPPING PATHS (present in BOTH projects): " + (analyzeFusion(scans).collisions.join(", ") || "(none)"),
+    "",
     "Reference images supplied by the user (infer intent from the names): " + (attached.join(", ") || "(none)"),
     "",
     "STRATEGY:\n" + stratText,
@@ -322,6 +357,7 @@ export function buildFusionPrompt(strategy: FusionStrategy, scans: RootScan[], a
     "HARD RULES:",
     `- EVERY output file path is relative to PROJECT A's root (e.g. "src/fusion/bridge.ts", "FUSION.md"). NEVER write into project B's folder.`,
     "- Prefer a few small adapter/scaffold files over copying B's sources.",
+    "- NEVER overwrite a file that already exists in PROJECT A with B's version. If a path above is listed as overlapping, keep A's file and namespace B's copy instead.",
     "- Everything must run fully OFFLINE (no cloud-only services or keys).",
     "- Start your answer with a 3-6 line markdown summary of the integration approach.",
     "- After the summary, output ONE ```json block of edits for exactly the files you change:",
@@ -376,6 +412,18 @@ export function buildBlueprint(scans: RootScan[], attached: string[]): string {
     "",
     `> ${fit.verdict}`,
     "",
+  );
+  if (fit.collisions.length) {
+    lines.push(
+      "## ⚠ Overlapping paths (would overwrite)",
+      "",
+      "These relative paths exist in BOTH projects. Copying B over A destroys work and is easy to miss in review — keep A's version and namespace B's copy under a distinct path.",
+      "",
+      ...fit.collisions.map((c) => "- `" + c + "`"),
+      "",
+    );
+  }
+  lines.push(
     "## Integration roadmap",
     "",
     `1. **Inventory** — confirm what ${a.name} already provides vs what ${b.name} adds (list above).`,
@@ -396,6 +444,230 @@ export function buildBlueprint(scans: RootScan[], attached: string[]): string {
 /** Wrap the offline blueprint as a single create-edit for the apply pipeline. */
 export function blueprintEdit(scans: RootScan[], attached: string[]): AiEdit {
   return { kind: "create", file: "FUSION.md", content: buildBlueprint(scans, attached), summary: "Offline fusion blueprint" };
+}
+
+// ---------------------------------------------------------------------------
+// Dry-run preview
+//
+// Answers "what will this fusion actually DO to my disk?" BEFORE spending an AI
+// request. It is a PREDICTION from the chosen strategy, not a diff: the exact
+// contents are unknown until a model writes them, but the set of touched paths is
+// knowable, and that is what decides whether a fusion is safe to run at all.
+// ---------------------------------------------------------------------------
+
+/** One path a strategy is expected to touch, relative to project A. */
+export type PlannedWrite = {
+  path: string;
+  kind: "create" | "overwrite" | "config";
+  /** Why this file is in the plan — shown in the preview. */
+  why: string;
+  /** True when A already has this exact path (the overwrite risk). */
+  clashes: boolean;
+};
+
+export type FusionPreview = {
+  writes: PlannedWrite[];
+  createCount: number;
+  overwriteCount: number;
+  /** Paths that already exist in A and would be replaced. */
+  destructive: string[];
+  verdict: "safe" | "caution" | "blocked";
+  notes: string[];
+};
+
+const scriptExt = () => "ps1";
+
+/** Match the host project's dominant language so generated files compile. */
+function extOf(a: RootScan): string {
+  const top = Object.entries(a.languages).sort((x, y) => y[1] - x[1])[0]?.[0]?.toLowerCase() || "";
+  if (["ts", "tsx", "js", "jsx", "py", "rs", "go"].includes(top)) return top === "tsx" ? "ts" : top;
+  if (a.manifests.some((m) => /package\.json$/i.test(m))) return "ts";
+  if (a.manifests.some((m) => /(requirements\.txt|pyproject\.toml)$/i.test(m))) return "py";
+  if (a.manifests.some((m) => /cargo\.toml$/i.test(m))) return "rs";
+  return "ts";
+}
+
+/** The file set each strategy promises, derived from the two project names. */
+function expectedPaths(strategy: FusionStrategy | "blueprint", a: RootScan, b: RootScan): PlannedWrite[] {
+  if (strategy === "blueprint") {
+    return [{ path: "FUSION.md", kind: "create", why: "Deterministic blueprint: inventory, fit check, roadmap. No AI used.", clashes: false }];
+  }
+  if (strategy === "bridge") {
+    return [
+      { path: "FUSION.md", kind: "create", why: "What was merged, how to run the combined tool.", clashes: false },
+      { path: `src/fusion/bridge.${extOf(a)}`, kind: "create", why: `Thin adapter calling ${b.name} by relative path.`, clashes: false },
+      { path: `src/fusion/index.${extOf(a)}`, kind: "create", why: "Single import surface for the fused capabilities.", clashes: false },
+      { path: `src/fusion/launch.${extOf(a)}`, kind: "create", why: "One entry point that starts both halves offline.", clashes: false },
+    ];
+  }
+  if (strategy === "vendor") {
+    return [
+      { path: "FUSION.md", kind: "create", why: "Vendor layout, sync instructions, offline run steps.", clashes: false },
+      { path: "scripts/fuse-vendor.ps1", kind: "create", why: "Copies " + b.name + " into vendor/ at build time (no network).", clashes: false },
+      { path: "scripts/fuse-vendor.sh", kind: "create", why: "POSIX twin of the sync script.", clashes: false },
+      { path: `run-fusion.${scriptExt()}`, kind: "create", why: "Single offline launcher: host + vendored copy.", clashes: false },
+      { path: "vendor/.gitkeep", kind: "create", why: "Marks the vendor drop target so the folder is never empty.", clashes: false },
+    ];
+  }
+  return [
+    { path: "FUSION.md", kind: "create", why: "Shared workspace map and run instructions.", clashes: false },
+    { path: "fusion.config.json", kind: "config", why: "Both halves' entry points in one readable config.", clashes: false },
+    { path: `scripts/run-fusion.${scriptExt()}`, kind: "create", why: "Starts both projects side by side, offline.", clashes: false },
+    { path: `scripts/status-fusion.${scriptExt()}`, kind: "create", why: "Reports whether both halves are reachable.", clashes: false },
+  ];
+}
+
+/**
+ * Predict what a fusion would touch, and flag anything destructive.
+ *
+ * `a.files` is the host's file list; a planned path that already appears there is
+ * an overwrite, which is the one outcome that can lose work irrecoverably. The
+ * verdict is deliberately conservative — "blocked" means "confirm before
+ * running", not that the AI is forbidden from proceeding.
+ */
+export function previewFusion(strategy: FusionStrategy | "blueprint", scans: RootScan[]): FusionPreview {
+  const a = scans[0];
+  const b = scans[1];
+  const notes: string[] = [];
+  if (!a || !b) {
+    return { writes: [], createCount: 0, overwriteCount: 0, destructive: [], verdict: "blocked", notes: ["Open two projects first."] };
+  }
+  const inA = new Set(a.files.map(keyPath));
+  const writes = expectedPaths(strategy, a, b).map((w) => ({ ...w, clashes: inA.has(keyPath(w.path)) }));
+  const destructive = writes.filter((w) => w.clashes).map((w) => w.path);
+  const createCount = writes.length - destructive.length;
+
+  if (destructive.length) {
+    notes.push(`${destructive.length} planned path(s) already exist in ${a.name} and would be replaced.`);
+    if (destructive.includes("FUSION.md")) notes.push("FUSION.md is only a generated report — replacing it loses nothing.");
+  }
+  // A rewritten manifest that drops dependencies is the classic fusion foot-gun.
+  if (destructive.some((p) => /(package\.json|cargo\.toml|requirements\.txt|pyproject\.toml)$/i.test(p))) {
+    notes.push("A manifest is in the overwrite list — check that no existing dependency is dropped.");
+  }
+  const collisions = findCollisions(a, b);
+  if (collisions.length) {
+    notes.push(`${collisions.length} path(s) exist in both projects; the plan is told to namespace B's copies.`);
+  }
+  if (!notes.length) notes.push("Every planned path is new — this fusion adds files without replacing any.");
+
+  // Overwriting FUSION.md is harmless (it is a generated report), so it earns
+  // "caution" rather than "blocked" — but it is still a replace, so it must not
+  // read as a clean "safe". Any other real overwrite escalates to "blocked".
+  const realOverwrites = destructive.filter((p) => p !== "FUSION.md").length;
+  const verdict: FusionPreview["verdict"] =
+    realOverwrites > 1 ? "blocked" : destructive.length ? "caution" : "safe";
+  return { writes, createCount, overwriteCount: destructive.length, destructive, verdict, notes };
+}
+
+// ---------------------------------------------------------------------------
+// Post-fusion verification
+//
+// The blueprint roadmap's last step is "run both halves together", but nothing in
+// the app actually did it. This closes that loop: after a fusion is applied,
+// re-scan both projects and report whether the combined tool is really wired up
+// — offline, with no model, by checking facts on disk.
+// ---------------------------------------------------------------------------
+
+export type FusionCheck = { label: string; status: "pass" | "fail" | "warn" | "skip"; detail: string };
+export type FusionVerifyReport = {
+  checks: FusionCheck[];
+  pass: number;
+  fail: number;
+  verdict: "pass" | "warn" | "fail";
+  at: number;
+};
+
+/**
+ * Verify a fusion that has already been written to disk.
+ *
+ * Every check is a fact about the filesystem, not a guess. `scans` must be FRESH
+ * scans taken AFTER applying — reusing the pre-apply scan would report on the
+ * old state and always "fail" a merge that actually worked. `planned` is the
+ * preview's file list, used to confirm the promised files really landed.
+ */
+export function verifyFusion(scans: RootScan[], planned: string[] = []): FusionVerifyReport {
+  const checks: FusionCheck[] = [];
+  const a = scans[0];
+  const b = scans[1];
+  const at = Date.now();
+
+  if (!a) {
+    return { checks: [{ label: "Scan", status: "fail", detail: "No host project to verify." }], pass: 0, fail: 1, verdict: "fail", at };
+  }
+  const all = a.files.map(keyPath);
+  const has = (p: string) => all.includes(keyPath(p));
+
+  // 1. The blueprint is the human-readable record of the merge.
+  checks.push(
+    has("FUSION.md")
+      ? { label: "FUSION.md present", status: "pass", detail: "The merge is documented in the host project." }
+      : { label: "FUSION.md present", status: "warn", detail: "No FUSION.md — there is no record of what was merged or why." },
+  );
+
+  // 2. Did the promised scaffolding actually land?
+  if (planned.length) {
+    const missing = planned.filter((p) => !has(p));
+    checks.push(
+      missing.length === 0
+        ? { label: "Planned files written", status: "pass", detail: `All ${planned.length} planned file(s) are on disk.` }
+        : missing.length === planned.length
+          ? { label: "Planned files written", status: "fail", detail: "None of the planned files were written." }
+          : { label: "Planned files written", status: "warn", detail: `${missing.length}/${planned.length} missing: ${missing.join(", ")}` },
+    );
+  }
+
+  // 3. The host must still have a working entry point — a fusion that breaks the
+  //    host is worse than no fusion at all.
+  checks.push(
+    a.entry
+      ? { label: "Host entry point intact", status: "pass", detail: a.entry }
+      : { label: "Host entry point intact", status: "fail", detail: "The host project has no detectable entry point any more." },
+  );
+
+  // 4. The source half must still exist — a copy can lose it.
+  if (b) {
+    checks.push(
+      b.root && b.root !== a.root
+        ? { label: "Source project still present", status: "pass", detail: b.root }
+        : { label: "Source project still present", status: "warn", detail: "Source and host resolve to the same folder." },
+    );
+  }
+
+  // 5. Is the host actually referencing the fusion? This is the difference
+  //    between "files were copied in" and "the halves are wired together".
+  const fuseRefs = a.files.filter((f) => /(^|[\\/])(fusion|vendor)[\\/]/i.test(f) || /fuse-vendor|run-fusion/i.test(f));
+  checks.push(
+    fuseRefs.length
+      ? { label: "Fusion wired into host", status: "pass", detail: fuseRefs.slice(0, 3).join(", ") }
+      : { label: "Fusion wired into host", status: "fail", detail: "No fusion/ or vendor/ files in the host — the merge did not land." },
+  );
+
+  // 6. Be explicit that a real compile check was NOT run, rather than implying
+  //    the code is known-good. A green tick here means "structurally present".
+  const code = fuseRefs.filter((f) => /\.(ts|tsx|js|jsx|mjs|cjs|json)$/i.test(f));
+  if (code.length) {
+    checks.push({
+      label: "Fusion code compiles",
+      status: "skip",
+      detail: `${code.length} code file(s) present — run the host build for a real answer.`,
+    });
+  }
+
+  // 7. A manifest that stopped resolving is the most common silent breakage.
+  checks.push(
+    a.manifests.length
+      ? { label: "Host manifest readable", status: "pass", detail: a.manifests.join(", ") }
+      : { label: "Host manifest readable", status: "warn", detail: "No manifest found in the host project." },
+  );
+
+  const pass = checks.filter((c) => c.status === "pass").length;
+  const fail = checks.filter((c) => c.status === "fail").length;
+  return {
+    checks, pass, fail,
+    verdict: fail ? "fail" : checks.some((c) => c.status === "warn") ? "warn" : "pass",
+    at,
+  };
 }
 
 

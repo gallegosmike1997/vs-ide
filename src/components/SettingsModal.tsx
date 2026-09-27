@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Clock, CloudLightning, Loader2, LogIn, Plug, RefreshCw, Trash2, Wifi, WifiOff, X } from "lucide-react";
 import { PROVIDER_GROUPS, PROVIDER_PRESETS, activateFreeCloud, checkLLM, connectPuterNow, getLLMConfig, isPuterToken, listModels, puterAuthState, saveLLMConfig } from "../lib/aiClient";
 import { useLLMConfig, useLLMStatus, type LLMProvider } from "../lib/aiClient";
+import { openExternal } from "../lib/openExternal";
 import { COMMANDS, hintFor } from "../lib/commands";
 export default function SettingsModal({ open, onClose, fontSize, setFontSize, onToast, onOpenShortcuts, initialTab }: {
   open: boolean; onClose: () => void; fontSize: number; setFontSize: (n: number) => void;
@@ -85,8 +86,20 @@ export default function SettingsModal({ open, onClose, fontSize, setFontSize, on
             </button>
           ))}
         </div>
-        <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: "66vh", overflowY: "auto" }}>
+          <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: "66vh", overflowY: "auto" }}>
           {tab === "llm" && (<div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="card" style={{ display: "flex", alignItems: "center", gap: 10, borderColor: "var(--gold)" }}>
+              <div style={{ flex: 1, fontSize: 12 }}>
+                <b>Recommended: Puter.</b> Sign in once — no API key, no account registration, no install — and 1000+ models
+                become available on your own free allowance. The other providers below are alternatives if you already have a key
+                or want everything to run locally.
+              </div>
+              {status !== "online" && (
+                <button className="btn btn-sm btn-primary" disabled={busy} onClick={signInPuter} style={{ flexShrink: 0 }}>
+                  {busy ? <Loader2 size={13} className="spin" /> : <LogIn size={13} />} Sign in to Puter
+                </button>
+              )}
+            </div>
                         <button className="btn btn-sm btn-primary" disabled={busy} onClick={goFree} style={{ alignSelf: "flex-start" }}>
               {busy ? <Loader2 size={13} className="spin" /> : <CloudLightning size={13} />} Get me online (auto / free cloud)
             </button>
@@ -126,7 +139,7 @@ export default function SettingsModal({ open, onClose, fontSize, setFontSize, on
               <>
                 <label style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700 }}>
                   API KEY (required)
-                  {preset.keyUrl && <a href={preset.keyUrl} target="_blank" rel="noreferrer" style={{ marginLeft: 8, fontWeight: 500 }}>get a key ↗</a>}
+                  {preset.keyUrl && <button onClick={() => void openExternal(preset.keyUrl!)} style={{ marginLeft: 8, fontWeight: 500, cursor: "pointer", color: "var(--gold)", background: "none", border: 0, padding: 0, textDecoration: "underline" }}>get a key ↗</button>}
                 </label>
                 <input className="input" type="password" value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} placeholder={preset.keyLabel || "sk-..."} autoComplete="off" spellCheck={false} />
               </>

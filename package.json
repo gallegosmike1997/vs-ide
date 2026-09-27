@@ -21,7 +21,7 @@
     "sign": "pwsh -NoProfile -ExecutionPolicy Bypass -File tools/sign-release.ps1",
     "unblock": "pwsh -NoProfile -ExecutionPolicy Bypass -File tools/unblock.ps1 -AllFiles",
     "package:portable": "pwsh -NoProfile -Command \"Copy-Item src-tauri\\target\\release\\vs_ide.exe dist\\VS-IDE-portable.exe -Force; Compress-Archive -Path dist\\VS-IDE-portable.exe -DestinationPath src-tauri\\target\\release\\bundle\\VS-IDE-portable.zip -Force; Remove-Item dist\\VS-IDE-portable.exe -Force; Write-Host 'portable zip ready (no installer, WebView2 not bundled)'\"",
-    "test": "tsx test/normalizePlanResult.harness.ts && tsx test/commands.harness.ts && tsx test/scm.harness.ts"
+    "test": "tsx test/normalizePlanResult.harness.ts && tsx test/commands.harness.ts && tsx test/scm.harness.ts && tsx test/fusion.harness.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
