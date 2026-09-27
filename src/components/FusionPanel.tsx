@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeftRight, Combine, FolderPlus, ImagePlus, Loader2, Package, RefreshCw, Rocket, ShieldAlert, ShieldCheck, Sparkles, WifiOff, X } from "lucide-react";
+import { ArrowLeftRight, Combine, FolderPlus, History, ImagePlus, Loader2, Package, Play, RefreshCw, Rocket, ShieldAlert, ShieldCheck, Sparkles, Trash2, WifiOff, X } from "lucide-react";
 import type { AgentMode, TabDef } from "../store";
-import { type FusionStrategy, type RootScan, analyzeFusion, blueprintEdit, buildFusionPrompt, loadImageThumb, previewFusion, scanImportedFolder, scanWorkspaceProjects, verifyFusion, type FusionPreview, type FusionVerifyReport } from "../lib/fusion";
+import { type FusionStrategy, type RootScan, analyzeFusion, asPair, blueprintEdit, buildFusionPrompt, buildRetryPrompt, clearFusionHistory, expectedPaths, loadFusionHistory, loadImageThumb, previewFusion, reconcilePlan, recordFusion, scanImportedFolder, scanWorkspaceProjects, verifyFusion, type FusionDrift, type FusionPreview, type FusionRecord, type FusionVerifyReport } from "../lib/fusion";
+import { runFusionLauncher, type ExecCheck } from "../lib/fusionExec";
 import { isDesktop } from "../lib/workspace";
 import { parseAiEdits, type AiEdit } from "../lib/aiEdits";
 import { useLLMCall } from "../lib/aiClient";
+
+/** How many problems a retry would try to fix — drives the button label. */
+function failedChecks(report: FusionVerifyReport | null, drift: FusionDrift | null): number {
+  const failed = (report?.checks || []).filter((c) => c.status === "fail" || c.status === "warn").length;
+  const driftIssues = (drift?.missing.length ? 1 : 0) + (drift?.unplannedOverwrites.length ? 1 : 0) + (drift?.unexpected.length ? 1 : 0);
+  return failed + driftIssues;
+}
 
 /**
  * Project fusion — load two workspace folders, show both inventories plus an
@@ -29,6 +37,11 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [attached, setAttached] = useState<{ name: string; url: string }[]>([]);
   const [mode, setMode] = useState<FusionStrategy | "blueprint">("bridge");
+  // Which of the N scanned projects play host and source. Indices into `scans`
+  // rather than reordering the array, so picking a different pair from three or
+  // more open folders never disturbs the workspace root order.
+  const [hostIdx, setHostIdx] = useState(0);
+  const [sourceIdx, setSourceIdx] = useState(1);
   // ---- Dry-run preview: what this fusion would touch, before any AI request ----
   const [preview, setPreview] = useState<FusionPreview | null>(null);
   // Explicit confirmation when the preview predicts an overwrite.
@@ -36,6 +49,16 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
   // ---- Post-fusion verification: fresh re-scan + on-disk checks ----
   const [report, setReport] = useState<FusionVerifyReport | null>(null);
   const [verifying, setVerifying] = useState(false);
+  // ---- Plan drift: predicted vs actually produced ----
+  const [drift, setDrift] = useState<FusionDrift | null>(null);
+  // ---- Retry: the last attempt, so a failure can be fed back to the model ----
+  const [lastAttempt, setLastAttempt] = useState<{ prompt: string; files: number } | null>(null);
+  // ---- Execution check: actually run the generated launcher ----
+  const [exec, setExec] = useState<ExecCheck | null>(null);
+  const [running, setRunning] = useState(false);
+  // ---- History of past fusions ----
+  const [history, setHistory] = useState<FusionRecord[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const { loading, run } = useLLMCall();
   const locked = agentMode !== "do";
   const rootsKey = roots.join("|");
@@ -61,6 +84,10 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => () => { ownedUrls.current.forEach((u) => URL.revokeObjectURL(u)); }, []);
+  // History lives in localStorage, so it is read once when the panel opens.
+  useEffect(() => { setHistory(loadFusionHistory()); }, []);
+  // A different host/source pair invalidates everything derived from the old one.
+  useEffect(() => { setPreview(null); setAckRisk(false); setDrift(null); setReport(null); setExec(null); }, [hostIdx, sourceIdx]);
 
   function attachFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -113,12 +140,14 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
   }
 
   function guard(): boolean {
-    if (scans.length < 2) {
+    if (!pair) {
       onToast(
-        isDesktop() ? "Open two project folders first" : "Import two project folders first",
-        isDesktop()
-          ? "File → Add Folder to Workspace… — pick this app, then Super-AI-Stack (or any second project)."
-          : "Use “Import project folder” below — pick this app's folder, then Super-AI-Stack."
+        isDesktop() ? "Pick a host and a source" : "Pick two project folders",
+        scans.length < 2
+          ? (isDesktop()
+            ? "File → Add Folder to Workspace… — open this app plus at least one other project."
+            : "Use “Import project folder” below to add a second project.")
+          : "Choose two DIFFERENT projects — a project cannot be fused into itself."
       );
       return false;
     }
@@ -131,8 +160,8 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
 
   /** Dry run: predict the touched paths. Costs nothing and runs no AI. */
   function dryRun() {
-    if (scans.length < 2) { onToast("Open two projects first", "The preview needs a host and a source project."); return; }
-    setPreview(previewFusion(mode, scans));
+    if (!pair) { onToast("Pick a host and a source", "The preview needs two different projects."); return; }
+    setPreview(previewFusion(mode, pair));
     setAckRisk(false);
   }
 
@@ -143,14 +172,25 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
    */
   async function verify() {
     if (!isDesktop()) { onToast("Desktop app only", "Verification reads the project folders from disk."); return; }
+    if (!pair) { onToast("Pick a host and a source", "Verification compares two projects."); return; }
     setVerifying(true);
     setReport(null);
+    setExec(null);
     try {
       const fresh = await scanWorkspaceProjects();
-      if (fresh.length < 2) { onToast("Need both folders open", "Verification compares the host and the source project."); return; }
-      const planned = previewFusion(mode, fresh).writes.map((w) => w.path);
-      const rep = verifyFusion(fresh, planned);
+      const hostRoot = pair[0].root, sourceRoot = pair[1].root;
+      const host = fresh.find((s) => s.root === hostRoot);
+      const source = fresh.find((s) => s.root === sourceRoot);
+      if (!host || !source) { onToast("Re-scan needed", "One of the two folders is no longer open — press refresh."); return; }
+      const freshPair: [RootScan, RootScan] = [host, source];
+      const planned = expectedPaths(mode, host, source).map((w) => w.path);
+      const rep = verifyFusion(freshPair, planned);
       setReport(rep);
+      // recordFusion returns the new list, so the history stays in sync.
+      setHistory(recordFusion({
+        at: Date.now(), host: host.root, source: source.root,
+        hostName: host.name, sourceName: source.name, strategy: mode, outcome: rep.verdict,
+      }));
       onToast(
         rep.verdict === "pass" ? "Fusion verified" : rep.verdict === "warn" ? "Verified with warnings" : "Verification failed",
         rep.pass + " passed · " + rep.fail + " failed",
@@ -160,9 +200,40 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
     } finally { setVerifying(false); }
   }
 
+  /**
+   * Actually execute the launcher the fusion generated and report the exit code.
+   * This is the one place fusion runs something, and it is always user-initiated.
+   */
+  async function runLauncher() {
+    if (!pair) { onToast("Pick a host and a source", "Nothing to run yet."); return; }
+    setRunning(true);
+    setExec(null);
+    try {
+      const r = await runFusionLauncher(mode, pair[0]);
+      setExec(r);
+    } finally { setRunning(false); }
+  }
+
+  /** Re-run generation, feeding the previous failure back as constraints. */
+  async function retry() {
+    if (!guard() || busy || loading || !lastAttempt) return;
+    if (!(await ensureOnline())) return;
+    setBusy(true);
+    try {
+      // The retry prompt carries the same hard rules plus what actually failed.
+      const reply = await run(buildRetryPrompt(lastAttempt.prompt, report, drift));
+      const edits = parseAiEdits(reply);
+      if (!edits.length) { onToast("No file edits returned", String(reply).slice(0, 180)); return; }
+      setDrift(reconcilePlan(mode, pair!, edits.map((e) => e.file)));
+      onPlan(reply, edits, "Project fusion · retry after failure");
+    } catch (e: any) {
+      onToast("Retry failed", String(e?.message || e).slice(0, 200));
+    } finally { setBusy(false); }
+  }
+
   /** One entry point: offline blueprint or AI plan, both through onPlan. */
   async function generate() {
-    if (!guard() || busy || loading) return;
+    if (!guard() || busy || loading || !pair) return;
     // A predicted overwrite must be acknowledged before an AI request is spent.
     if (preview && preview.verdict !== "safe" && !ackRisk) {
       onToast("Overwrite predicted", "Review the dry-run list, then tick the confirm box to continue.");
@@ -170,15 +241,21 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
     }
     const names = attached.map((x) => x.name);
     if (mode === "blueprint") {
-      onPlan("Offline blueprint — FUSION.md (no AI used).", [blueprintEdit(scans, names)], "Project fusion · offline blueprint");
+      onPlan("Offline blueprint — FUSION.md (no AI used).", [blueprintEdit(pair, names)], "Project fusion · offline blueprint");
+      setLastAttempt(null);
       return;
     }
     if (!(await ensureOnline())) return;
     setBusy(true);
     try {
-      const reply = await run(buildFusionPrompt(mode, scans, names));
+      const prompt = buildFusionPrompt(mode, pair, names);
+      const reply = await run(prompt);
       const edits = parseAiEdits(reply);
       if (!edits.length) { onToast("No file edits returned", String(reply).slice(0, 180)); return; }
+      // Reconcile what was planned against what the model actually produced, so
+      // off-plan writes are visible in the review dialog rather than a surprise.
+      setDrift(reconcilePlan(mode, pair, edits.map((e) => e.file)));
+      setLastAttempt({ prompt, files: edits.length });
       const how = mode === "bridge" ? "bridge B → A" : mode === "vendor" ? "vendor B → A" : "offline scaffold";
       onPlan(reply, edits, "Project fusion · " + how);
     } catch (e: any) {
@@ -186,16 +263,17 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
     } finally { setBusy(false); }
   }
 
-  const a = scans[0];
-  const b = scans[1];
+  const a = scans[hostIdx];
+  const b = scans[sourceIdx];
   const work = busy || loading;
   /**
-   * A is the host that receives the output, B is the capability source. The scan
-   * order comes from the workspace root order, which is rarely what the user
-   * wants — fusing the OTHER direction is a completely different plan, so
-   * swapping has to be a first-class control rather than a re-ordering trick.
+   * A is the host that receives the output, B is the capability source. With more
+   * than two folders open the user picks the pair explicitly rather than getting
+   * whatever order the workspace roots happen to be in — fusing in the opposite
+   * direction is a completely different plan, so this must be a real choice.
    */
-  const swap = () => setScans((prev) => (prev.length < 2 ? prev : [prev[1], prev[0]]));
+  const pair = asPair(scans, hostIdx, sourceIdx);
+  const swap = () => { setHostIdx(sourceIdx); setSourceIdx(hostIdx); setPreview(null); setDrift(null); };
   const STRATEGIES: { id: FusionStrategy | "blueprint"; icon: any; title: string; desc: string }[] = [
     { id: "bridge", icon: Combine, title: a && b ? `Bridge ${b.name} → ${a.name}` : "Bridge B → A", desc: "Wire the second project's AI pipeline into this app as a callable module — AI plans thin adapter files." },
     { id: "vendor", icon: Package, title: a && b ? `Vendor ${b.name} into ${a.name}/vendor` : "Vendor B inside A", desc: "Generated sync scripts copy B into A's vendor/ folder at build time — one offline launcher runs both, no network." },
@@ -206,7 +284,17 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
     <div className="glass" style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div className="panel-header">
         <span><Combine size={12} style={{ marginRight: 6 }} />Project Fusion</span>
-        <span className={"badge " + (scans.length >= 2 ? "badge-ok" : "")}>{scans.length}/2 projects{roots.length > 1 ? ` · ${roots.length} folders` : ""}</span>
+        <span className={"badge " + (pair ? "badge-ok" : "")}>{scans.length} project{scans.length === 1 ? "" : "s"}{roots.length > 1 ? ` · ${roots.length} folders` : ""}</span>
+        {history.length > 0 && (
+          <button
+            className="btn btn-sm btn-ghost"
+            style={{ marginLeft: 8, padding: "2px 8px", fontSize: 10.5 }}
+            onClick={() => setShowHistory((v) => !v)}
+            title={`${history.length} previous fusion(s) on this machine`}
+          >
+            <History size={12} /> {history.length}
+          </button>
+        )}
         {scans.length >= 2 && (
           <button
             className="btn btn-sm btn-ghost"
@@ -219,6 +307,43 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
           </button>
         )}
       </div>
+      {showHistory && (
+        <div className="card" style={{ margin: "8px 10px 0", padding: 9, display: "flex", flexDirection: "column", gap: 5 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <b style={{ fontSize: 12 }}>Fusion history</b>
+            <button
+              className="icon-btn" style={{ width: 18, height: 18, marginLeft: "auto" }}
+              title="Clear history"
+              onClick={() => { clearFusionHistory(); setHistory([]); }}
+            ><Trash2 size={11} /></button>
+            <button className="icon-btn" style={{ width: 18, height: 18 }} title="Dismiss" onClick={() => setShowHistory(false)}><X size={11} /></button>
+          </div>
+          {history.map((h, i) => {
+            const tone = h.outcome === "pass" ? "#34d399" : h.outcome === "fail" ? "var(--danger, #ff6b6b)" : h.outcome === "warn" ? "#febc2e" : "var(--text-3)";
+            return (
+              <div key={i} style={{ display: "flex", gap: 6, alignItems: "baseline", fontSize: 11, minWidth: 0 }}>
+                <span style={{ color: tone, fontWeight: 800, fontFamily: "var(--mono)", fontSize: 9 }}>[{h.outcome || "none"}]</span>
+                <span className="truncate" title={h.host + " ← " + h.source} style={{ minWidth: 0 }}>
+                  {h.sourceName} → {h.hostName} <span style={{ color: "var(--text-3)" }}>({h.strategy})</span>
+                </span>
+                <span style={{ marginLeft: "auto", color: "var(--text-3)", fontSize: 10, flexShrink: 0 }}>{new Date(h.at).toLocaleDateString()}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {scans.length >= 2 && (
+        <div style={{ padding: "8px 10px 0", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 10, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 800 }}>Fuse</span>
+          <select className="input" style={{ width: "auto", flex: 1, minWidth: 0, padding: "3px 6px", fontSize: 11.5 }} value={hostIdx} title="Host — receives every output file" onChange={(e) => setHostIdx(Number(e.target.value))}>
+            {scans.map((s, i) => <option key={s.root} value={i} disabled={i === sourceIdx}>{s.name} (host)</option>)}
+          </select>
+          <ArrowLeftRight size={13} color="var(--text-3)" style={{ flexShrink: 0 }} />
+          <select className="input" style={{ width: "auto", flex: 1, minWidth: 0, padding: "3px 6px", fontSize: 11.5 }} value={sourceIdx} title="Source — contributes the capabilities" onChange={(e) => setSourceIdx(Number(e.target.value))}>
+            {scans.map((s, i) => <option key={s.root} value={i} disabled={i === hostIdx}>{s.name} (source)</option>)}
+          </select>
+        </div>
+      )}
       <div style={{ padding: "10px 10px 0", fontSize: 11.5, color: "var(--text-2)", lineHeight: 1.5 }}>
         Two projects in → one offline tool out. Output lands in project A after review + verification.
       </div>
@@ -263,8 +388,8 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
           </div>
           );
         })}
-        {scans.length >= 2 && (() => {
-          const fit = analyzeFusion(scans);
+        {pair && (() => {
+          const fit = analyzeFusion(pair);
           const warn = fit.findings.some((f) => f.kind === "warn");
           const tone = (k: string) => (k === "ok" ? "#34d399" : k === "warn" ? "#febc2e" : "var(--accent, #4169e1)");
           return (
@@ -367,7 +492,7 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
           <button
             className="btn btn-primary btn-sm"
             style={{ flex: 1 }}
-            disabled={work || scans.length < 2}
+            disabled={work || !pair}
             title={locked ? "Switch to Do mode (top toolbar) — combining writes files" : "Opens the review dialog; nothing is written before verification"}
             onClick={() => void generate()}
           >
@@ -380,7 +505,7 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
         <div style={{ display: "flex", gap: 6 }}>
           <button
             className="btn btn-sm" style={{ flex: 1 }}
-            disabled={work || scans.length < 2}
+            disabled={work || !pair}
             onClick={dryRun}
             title="Predict exactly which files this fusion would create or overwrite — free, offline, no AI call"
           >
@@ -388,13 +513,77 @@ export default function FusionPanel({ roots, tabs, agentMode, onToast, onPlan, e
           </button>
           <button
             className="btn btn-sm" style={{ flex: 1 }}
-            disabled={work || verifying || scans.length < 2}
+            disabled={work || verifying || !pair}
             onClick={() => void verify()}
             title="Re-scan from disk and check the fusion actually landed — offline, no AI call"
           >
-            {verifying ? <Loader2 size={13} className="spin" /> : <ShieldCheck size={13} />} Verify fusion
+            {verifying ? <Loader2 size={13} className="spin" /> : <ShieldCheck size={13} />} Verify
+          </button>
+          <button
+            className="btn btn-sm" style={{ flex: 1 }}
+            disabled={work || running || !pair}
+            onClick={() => void runLauncher()}
+            title="Run the launcher this fusion generated and report its exit code — the only thing here that executes code"
+          >
+            {running ? <Loader2 size={13} className="spin" /> : <Play size={13} />} Run
           </button>
         </div>
+        {lastAttempt && (
+          <button
+            className="btn btn-sm"
+            style={{ width: "100%" }}
+            disabled={work || !lastAttempt}
+            onClick={() => void retry()}
+            title={report || drift ? "Re-run generation, telling the model exactly which checks failed" : "Re-run generation with the same prompt"}
+          >
+            <RefreshCw size={13} /> Retry{failedChecks(report, drift) ? ` — fix ${failedChecks(report, drift)} problem${failedChecks(report, drift) === 1 ? "" : "s"}` : ""}
+          </button>
+        )}
+        {drift && (() => {
+          const tone = drift.verdict === "as-planned" ? "#34d399" : drift.verdict === "drift" ? "#febc2e" : "var(--danger, #ff6b6b)";
+          return (
+            <div className="card" style={{ padding: 10, display: "flex", flexDirection: "column", gap: 5, borderColor: tone }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <b style={{ fontSize: 12 }}>Plan vs actual</b>
+                <span className="badge" style={{ marginLeft: "auto", color: tone }}>{drift.verdict}</span>
+                <button className="icon-btn" style={{ width: 18, height: 18 }} title="Dismiss" onClick={() => setDrift(null)}><X size={11} /></button>
+              </div>
+              <div style={{ fontSize: 10.5, color: "var(--text-3)", lineHeight: 1.45 }}>{drift.summary}</div>
+              {drift.unplannedOverwrites.length > 0 && (
+                <div style={{ fontSize: 11, color: "var(--danger, #ff6b6b)", lineHeight: 1.45 }}>
+                  <b>Unannounced overwrites:</b> {drift.unplannedOverwrites.join(", ")}
+                </div>
+              )}
+              {drift.missing.length > 0 && (
+                <div style={{ fontSize: 10.5, color: "var(--text-3)", lineHeight: 1.45 }}>
+                  <b style={{ color: "var(--text-2)" }}>Predicted but not produced:</b> {drift.missing.join(", ")}
+                </div>
+              )}
+              {drift.unexpected.length > 0 && (
+                <div style={{ fontSize: 10.5, color: "var(--text-3)", lineHeight: 1.45 }}>
+                  <b style={{ color: "var(--text-2)" }}>Extra files:</b> {drift.unexpected.join(", ")}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+        {exec && (() => {
+          const tone = exec.status === "ran" ? (exec.code === 0 ? "#34d399" : "var(--danger, #ff6b6b)") : "var(--text-3)";
+          return (
+            <div className="card" style={{ padding: 10, display: "flex", flexDirection: "column", gap: 5, borderColor: tone }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <b style={{ fontSize: 12 }}>Execution check</b>
+                <span className="badge" style={{ marginLeft: "auto", color: tone }}>{exec.status === "ran" ? "exit " + exec.code : exec.status}</span>
+                <button className="icon-btn" style={{ width: 18, height: 18 }} title="Dismiss" onClick={() => setExec(null)}><X size={11} /></button>
+              </div>
+              <div style={{ fontSize: 10.5, color: "var(--text-3)", lineHeight: 1.45 }}>{exec.detail}</div>
+              {exec.command && <div style={{ fontSize: 10, fontFamily: "var(--mono)", color: "var(--text-3)", wordBreak: "break-all" }}>{exec.command}</div>}
+              {exec.output && (
+                <pre style={{ margin: 0, padding: 6, background: "rgba(0,0,0,0.3)", borderRadius: 5, fontSize: 10, maxHeight: 130, overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{exec.output}</pre>
+              )}
+            </div>
+          );
+        })()}
         {preview && (
           <div className="card" style={{ padding: 10, display: "flex", flexDirection: "column", gap: 6, borderColor: preview.verdict === "safe" ? "rgba(52,211,153,0.5)" : preview.verdict === "caution" ? "#febc2e" : "var(--danger, #ff6b6b)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

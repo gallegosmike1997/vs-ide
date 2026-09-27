@@ -211,6 +211,41 @@ export type FusionAnalysis = { verdict: string; findings: FusionFinding[]; colli
 /** Normalise a relative path for collision comparison (slashes, no case). */
 const keyPath = (p: string) => p.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
 
+/** One of the projects taking part in a fusion: A hosts, B contributes. */
+export type FusionRole = "host" | "source";
+
+/**
+ * The ordered pair a fusion runs on: [0] is always the host (it receives every
+ * output file), [1] is always the source.
+ *
+ * Fusing more than two projects is really "pick a host and a source from what is
+ * open", so the panel selects a pair from N scanned roots and the rest of the
+ * pipeline keeps working on a plain two-element array. Every function below
+ * takes this shape rather than a loose list, which is what stops the host/source
+ * roles from being silently swapped somewhere downstream.
+ */
+export type FusionPair = [RootScan, RootScan];
+
+/** Narrow a wider scan list to a host/source pair, or null if either is missing. */
+export function asPair(scans: RootScan[], hostIdx: number, sourceIdx: number): FusionPair | null {
+  const host = scans[hostIdx];
+  const source = scans[sourceIdx];
+  if (!host || !source || host.root === source.root) return null;
+  return [host, source];
+}
+
+/** Every ordered pair available, for a "pick two" chooser. */
+export function allPairs(scans: RootScan[]): { host: RootScan; source: RootScan; hostIdx: number; sourceIdx: number }[] {
+  const out: { host: RootScan; source: RootScan; hostIdx: number; sourceIdx: number }[] = [];
+  for (let h = 0; h < scans.length; h++) {
+    for (let s = 0; s < scans.length; s++) {
+      if (h === s) continue;
+      out.push({ host: scans[h], source: scans[s], hostIdx: h, sourceIdx: s });
+    }
+  }
+  return out;
+}
+
 /**
  * Relative paths that exist in BOTH projects.
  *
@@ -487,8 +522,12 @@ function extOf(a: RootScan): string {
   return "ts";
 }
 
-/** The file set each strategy promises, derived from the two project names. */
-function expectedPaths(strategy: FusionStrategy | "blueprint", a: RootScan, b: RootScan): PlannedWrite[] {
+/**
+ * The file set each strategy promises, derived from the two project names.
+ * Exported so the execution check can find the launcher without duplicating
+ * the strategy → file mapping in a second place.
+ */
+export function expectedPaths(strategy: FusionStrategy | "blueprint", a: RootScan, b: RootScan): PlannedWrite[] {
   if (strategy === "blueprint") {
     return [{ path: "FUSION.md", kind: "create", why: "Deterministic blueprint: inventory, fit check, roadmap. No AI used.", clashes: false }];
   }
@@ -561,7 +600,169 @@ export function previewFusion(strategy: FusionStrategy | "blueprint", scans: Roo
 }
 
 // ---------------------------------------------------------------------------
-// Post-fusion verification
+// Plan drift
+//
+// The preview is a PREDICTION from the strategy, and models drift: they invent
+// their own paths, skip the ones asked for, or write a file nobody planned.
+// Without this the user reviews a diff against their imagination of the plan,
+// and "we said 4 files, here are 7" passes unnoticed.
+//
+// This compares what was PREDICTED against what was ACTUALLY produced, so the
+// review dialog can state the difference rather than leaving it to be spotted.
+// ---------------------------------------------------------------------------
+
+export type FusionDrift = {
+  /** Predicted but never produced — the model ignored or renamed the ask. */
+  missing: string[];
+  /** Produced but never predicted — off-plan, and the risky direction. */
+  unexpected: string[];
+  /** Predicted files that landed, in order. */
+  matched: string[];
+  /** Unplanned writes onto a path that already exists in the host. */
+  unplannedOverwrites: string[];
+  verdict: "as-planned" | "drift" | "off-plan";
+  summary: string;
+};
+
+/**
+ * Reconcile the predicted plan against the edits a model actually returned.
+ *
+ * The dangerous case is `unplannedOverwrites`: a file the plan never mentioned,
+ * landing on a path that already exists in the host. That is an unannounced
+ * overwrite — the exact failure the whole preview exists to prevent, arriving
+ * through the back door.
+ */
+export function reconcilePlan(
+  strategy: FusionStrategy | "blueprint",
+  scans: RootScan[],
+  actualPaths: string[],
+): FusionDrift {
+  const a = scans[0];
+  if (!a) {
+    return { missing: [], unexpected: [], matched: [], unplannedOverwrites: [], verdict: "off-plan", summary: "No host project to compare against." };
+  }
+  const predicted = expectedPaths(strategy, a, scans[1]).map((w) => w.path);
+  const predKeys = new Map(predicted.map((p) => [keyPath(p), p]));
+  const hostFiles = new Set(a.files.map(keyPath));
+
+  const actual = actualPaths.filter((p) => typeof p === "string" && p.trim());
+  const actualKeys = new Map(actual.map((p) => [keyPath(p), p]));
+
+  const matched = predicted.filter((p) => actualKeys.has(keyPath(p)));
+  const missing = predicted.filter((p) => !actualKeys.has(keyPath(p)));
+  const unexpected = actual.filter((p) => !predKeys.has(keyPath(p)));
+  const unplannedOverwrites = unexpected.filter((p) => hostFiles.has(keyPath(p)));
+
+  const verdict: FusionDrift["verdict"] =
+    unplannedOverwrites.length || missing.length > predicted.length / 2 ? "off-plan" : missing.length || unexpected.length ? "drift" : "as-planned";
+
+  const bits: string[] = [];
+  if (matched.length) bits.push(`${matched.length} of ${predicted.length} predicted file(s) landed`);
+  if (unexpected.length) bits.push(`${unexpected.length} unplanned file(s)`);
+  if (missing.length) bits.push(`${missing.length} predicted file(s) missing`);
+  if (unplannedOverwrites.length) bits.push(`⚠ ${unplannedOverwrites.length} overwrite(s) the plan never mentioned`);
+  return {
+    missing, unexpected, matched, unplannedOverwrites, verdict,
+    summary: bits.join(" · ") || "No files produced.",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Retry with feedback
+//
+// Verification and generation were separate: verify could tell you the merge
+// failed, but the only remedy was to start over by hand. This feeds the failed
+// checks back in as constraints, so a retry addresses what actually went wrong
+// instead of re-rolling the dice with the same prompt.
+// ---------------------------------------------------------------------------
+
+/** Turn a failed verification report into instructions the model can act on. */
+export function buildRetryPrompt(
+  base: string,
+  report: FusionVerifyReport | null,
+  drift: FusionDrift | null,
+): string {
+  if (!report && !drift) return base;
+  const problems: string[] = [];
+
+  if (drift) {
+    if (drift.missing.length) problems.push("You did not produce these planned files: " + drift.missing.join(", "));
+    if (drift.unplannedOverwrites.length) {
+      problems.push(
+        "You wrote files the plan never mentioned, and they overwrite existing host files: " +
+        drift.unplannedOverwrites.join(", ") + ". Do not touch those paths.",
+      );
+    } else if (drift.unexpected.length) {
+      problems.push("You produced unplanned files: " + drift.unexpected.join(", ") + ". Stick to the planned paths.");
+    }
+  }
+  for (const c of report?.checks || []) {
+    if (c.status === "fail") problems.push(`FAILED CHECK "${c.label}": ${c.detail}`);
+    else if (c.status === "warn") problems.push(`WARNING "${c.label}": ${c.detail}`);
+  }
+
+  if (!problems.length) return base;
+  return [
+    base,
+    "",
+    "=".repeat(60),
+    "A PREVIOUS ATTEMPT WAS APPLIED AND FAILED VERIFICATION.",
+    "The problems below were found by reading the filesystem afterwards.",
+    "Fix THESE problems, do not repeat the same approach:",
+    "",
+    ...problems.map((p) => "- " + p),
+    "",
+    "Output the COMPLETE corrected set of files again, using the same json edits format.",
+    "Keep every hard rule from the original brief, especially: never overwrite an existing file in project A.",
+  ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Fusion history
+//
+// Fusions are expensive to run and easy to get wrong, so a bad one should stay
+// visible. Records what was fused, with which strategy, and how it went.
+// ---------------------------------------------------------------------------
+
+export type FusionRecord = {
+  at: number;
+  host: string;
+  source: string;
+  hostName: string;
+  sourceName: string;
+  strategy: string;
+  /** The verification verdict at the time it was recorded, if known. */
+  outcome?: "pass" | "warn" | "fail" | "none";
+  /** How many files the plan actually produced. */
+  files?: number;
+};
+
+const HISTORY_KEY = "vs-ide-fusion-history";
+const MAX_HISTORY = 20;
+
+export function loadFusionHistory(): FusionRecord[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    return Array.isArray(raw) ? raw.filter((r) => r && typeof r.host === "string") : [];
+  } catch { return []; }
+}
+
+/** Record a fusion. A repeat of the same host/source/strategy is moved to the
+ *  top rather than duplicated, so the list stays a history and not a log. */
+export function recordFusion(rec: FusionRecord): FusionRecord[] {
+  const all = loadFusionHistory().filter(
+    (r) => !(r.host === rec.host && r.source === rec.source && r.strategy === rec.strategy),
+  );
+  const next = [rec, ...all].slice(0, MAX_HISTORY);
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); } catch { /* storage blocked */ }
+  return next;
+}
+
+export function clearFusionHistory(): void {
+  try { localStorage.removeItem(HISTORY_KEY); } catch { /* storage blocked */ }
+}
+
+// ---------------------------------------------------------------------------
 //
 // The blueprint roadmap's last step is "run both halves together", but nothing in
 // the app actually did it. This closes that loop: after a fusion is applied,

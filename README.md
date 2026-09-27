@@ -113,11 +113,21 @@ Nothing is ever written directly from this panel. Everything goes through the sa
 
 **Swap A/B.** The scan order follows the workspace root order, but fusing in the opposite direction is a completely different plan, so the host and the source can be swapped with one button.
 
+**Any two of N projects.** Open as many folders as you like and pick the host and the source explicitly from dropdowns. Selection is by index into the scan list rather than by reordering it, so choosing a different pair never disturbs the workspace root order, and the same project can never be picked as both. `asPair()` is the single place that validates a selection, which is what stops the host/source roles being silently swapped downstream.
+
+**Plan vs actual (drift).** The dry run is a *prediction*, and models drift — they invent paths, skip the ones asked for, or write a file nobody planned. After generation, `reconcilePlan()` compares what was predicted against what actually came back and reports `as-planned` / `drift` / `off-plan`. The case that matters is an **unannounced overwrite**: a file the plan never mentioned, landing on a path that already exists in the host. That is the exact failure the preview exists to prevent, arriving through the back door, so it is flagged in red and fed into retries.
+
+**Retry with feedback.** Verification used to be a dead end — it could tell you the merge failed, but the only remedy was starting over by hand. `buildRetryPrompt()` feeds the failed checks and any drift back into the prompt as constraints, so a retry addresses what actually went wrong instead of re-rolling the dice with the same request. The button reads "Retry — fix 3 problems" so you know what it is about to attempt.
+
+**Execution check.** `verifyFusion()` is honest that structural presence is not a build, so this closes the gap: it runs the launcher the fusion generated and reports the exit code and output. It is deliberately conservative — only a script the fusion itself created is ever executed, never a project's own build or test command, and only when you press **Run**. A timeout, missing interpreter or absent script all resolve to `inconclusive` rather than a pass or a fail, because none of them tell you whether the fusion works.
+
+**History.** Past fusions are recorded locally (`localStorage`, capped at 20) with their host, source, strategy and verification verdict, so a bad fusion stays visible and reproducible. A repeat of the same triple is moved to the top rather than duplicated, so it reads as a history and not a log.
+
 **Dry run (preview).** `previewFusion()` predicts which files a strategy would create or overwrite, entirely offline and free — no AI call. Each path is labelled `NEW` or `OVERWRITE`, and the verdict is `safe` / `caution` / `blocked`. If anything real would be overwritten, the panel demands an explicit confirmation before an AI request is spent. Overwriting `FUSION.md` alone is only `caution` (it is a generated report, so nothing is lost); overwriting a manifest gets its own warning, because a rewritten `package.json` that drops a dependency is the classic way a fusion breaks the host.
 
 **Verify fusion.** After applying, `verifyFusion()` **re-scans from disk** and reports whether the merge actually landed: is `FUSION.md` present, did the planned files get written, is the host entry point still intact, does the source project still exist, and — the real question — is the host actually *wired* to the fusion, or were files merely copied in? It is honest about its limits: the compile check reports `skip`, not `pass`, because structural presence is not a build. Run the host build for a real verdict.
 
-All of this is offline and model-free, including the blueprint path. `test/fusion.harness.ts` covers the collision rules, the preview verdicts and the verifier's pass/warn/fail outcomes.
+All of this is offline and model-free, including the blueprint path. `test/fusion.harness.ts` covers the collision rules, the preview verdicts, pair selection, drift detection, the retry prompt and the verifier's pass/warn/fail outcomes.
 
 ## Project launcher, context menus and keybindings
 

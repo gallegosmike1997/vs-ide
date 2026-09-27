@@ -8,7 +8,7 @@
  * functions over a RootScan pair, so no filesystem or Tauri access is needed —
  * which is the point: the preview must be answerable offline and for free.
  */
-import { previewFusion, verifyFusion, findCollisions, type RootScan } from "../src/lib/fusion";
+import { previewFusion, verifyFusion, findCollisions, reconcilePlan, buildRetryPrompt, asPair, allPairs, type RootScan } from "../src/lib/fusion";
 
 let pass = 0;
 let fail = 0;
@@ -99,6 +99,55 @@ check("missing entry point fails", broken.checks.find((c) => c.label === "Host e
 const noHost = verifyFusion([]);
 check("no host fails cleanly", noHost.verdict, "fail");
 check("no host still returns a report", Array.isArray(noHost.checks), true);
+
+// ---- pair selection: fusing N projects means picking two ------------------
+const c = scan("third", ["src/main.ts", "lib/thing.ts"]);
+check("asPair needs two real projects", asPair([a, b], 0, 1)?.[0].name, "host");
+check("asPair rejects the same project twice", asPair([a, b], 0, 0), null);
+check("asPair rejects an out-of-range index", asPair([a, b], 0, 5), null);
+check("asPair rejects a single project", asPair([a], 0, 1), null);
+// Three projects must give 6 ordered pairs, not 3 — direction matters.
+check("three projects give six ordered pairs", allPairs([a, b, c]).length, 6);
+check("host is never the source in a pair", allPairs([a, b, c]).every((p) => p.host.root !== p.source.root), true);
+
+// ---- drift: an exact match is as-planned ----------------------------------
+const predicted = previewFusion("bridge", [a, b]).writes.map((w) => w.path);
+const onPlan = reconcilePlan("bridge", [a, b], predicted);
+check("a perfect match is as-planned", onPlan.verdict, "as-planned");
+check("everything matched", onPlan.matched.length, predicted.length);
+check("nothing missing", onPlan.missing.length, 0);
+check("nothing unexpected", onPlan.unexpected.length, 0);
+
+// ---- drift: a file the plan never mentioned, onto an existing path --------
+// This is the dangerous case: an unannounced overwrite arriving via the back door.
+const sneaky = reconcilePlan("bridge", [a, b], [...predicted, "src/main.ts"]);
+check("unplanned write onto a host file is caught", sneaky.unplannedOverwrites, ["src/main.ts"]);
+check("that is off-plan, not mere drift", sneaky.verdict, "off-plan");
+check("the extra file is reported as unexpected", sneaky.unexpected, ["src/main.ts"]);
+
+// ---- drift: a brand-new file nobody planned is drift, not a failure -------
+const extra = reconcilePlan("bridge", [a, b], [...predicted, "src/fusion/notes.md"]);
+check("a new unplanned file is not an overwrite", extra.unplannedOverwrites.length, 0);
+check("a new unplanned file is still drift", extra.verdict, "drift");
+
+// ---- drift: the model skipping most of the plan is off-plan ---------------
+const partial = reconcilePlan("bridge", [a, b], [predicted[0]]);
+check("skipping most planned files is off-plan", partial.verdict, "off-plan");
+check("the missing files are listed", partial.missing.length, predicted.length - 1);
+
+// ---- retry prompt: only fires when there is something to fix -------------
+check("no report and no drift means no retry prompt", buildRetryPrompt("BASE", null, null), "BASE");
+const clean = verifyFusion([fused, b], ["FUSION.md", "src/fusion/bridge.ts"]);
+check("a clean report adds nothing to the prompt", buildRetryPrompt("BASE", clean, onPlan), "BASE");
+
+// ---- retry prompt: real failures must reach the model ---------------------
+const brokenReport = verifyFusion([a, b], ["FUSION.md"]);
+const retryPrompt = buildRetryPrompt("BASE", brokenReport, sneaky);
+check("the original prompt is preserved", retryPrompt.startsWith("BASE"), true);
+check("the failed check is quoted", retryPrompt.includes('FAILED CHECK "Planned files written"'), true);
+check("the unannounced overwrite is called out", retryPrompt.includes("src/main.ts"), true);
+check("the model is told not to repeat itself", retryPrompt.includes("do not repeat the same approach"), true);
+check("the no-overwrite rule is restated", retryPrompt.includes("never overwrite an existing file"), true);
 
 console.log(`\nfusion: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
