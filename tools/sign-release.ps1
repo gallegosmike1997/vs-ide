@@ -25,8 +25,8 @@
 #>
 [CmdletBinding()]
 param(
-  # Certificate to sign with. Defaults to the dev self-signed cert.
-  [string]$Pfx = "$PSScriptRoot\vs-ide-dev-signing.pfx",
+  # Certificate to sign with. Defaults to the rotated dev cert in src-tauri.
+  [string]$Pfx = "$PSScriptRoot\..\src-tauri\vs-ide-signing.pfx",
   [SecureString]$Password,
   [string]$TimestampUrl = "http://timestamp.digicert.com",
   [switch]$SkipTimestamp
@@ -37,7 +37,18 @@ $repo = Split-Path -Parent $PSScriptRoot
 $bundle = Join-Path $repo "src-tauri\target\release\bundle"
 $appExe = Join-Path $repo "src-tauri\target\release\vs_ide.exe"
 
-if (-not $Password) { $Password = ConvertTo-SecureString "vs-ide-dev" -Force -AsPlainText }
+# The password is NOT hardcoded. It used to default to a literal that was also
+# committed, which meant anyone with the repo could sign as this publisher. Now
+# it is read from a gitignored file, or you are prompted for it.
+$pwFile = Join-Path $repo "src-tauri\signing-password.txt"
+if (-not $Password) {
+  if (Test-Path $pwFile) {
+    $Password = ConvertTo-SecureString (Get-Content $pwFile -Raw).Trim() -Force -AsPlainText
+  }
+  else {
+    $Password = Read-Host "PFX password for $(Split-Path -Leaf $Pfx)" -AsSecureString
+  }
+}
 if (-not (Test-Path $Pfx)) { throw "Certificate not found: $Pfx" }
 
 # signtool from the Windows SDK; fall back to the PowerShell signer.

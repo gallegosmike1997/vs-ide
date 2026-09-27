@@ -29,7 +29,7 @@
     "shortDescription": "AI-native code editor for Windows",
     "windows": {
       "webviewInstallMode": { "type": "offlineInstaller", "silent": true },
-      "certificateThumbprint": "D73B3F7EA0184E938ED5A1C1CB51BFBC5106AE74",
+      "certificateThumbprint": "05361CEC770AD275DBCD656E68F1A50A7288B09B",
       "timestampUrl": "http://timestamp.digicert.com"
     },
     "icon": [

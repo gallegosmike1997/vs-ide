@@ -31,4 +31,7 @@ src-tauri/target
 # code-signing PFX should not leave this machine.
 src-tauri/tauri.key
 tools/vs-ide-dev-signing.pfx
+# Rotated code-signing cert (2026) + its random password. Both are secrets.
+src-tauri/vs-ide-signing.pfx
+src-tauri/signing-password.txt
 .env.local

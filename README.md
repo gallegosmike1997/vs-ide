@@ -211,10 +211,12 @@ Both are **~210 MB** because the build now embeds the **offline WebView2 install
 
 Two kinds of certificate, with very different reach:
 
-- **The bundled dev certificate** (`tools/vs-ide-dev-signing.pfx`, self-signed) — cryptographically valid and tamper-evident, and any machine that *trusts* it shows a clean publisher. That means the machines you control: import `vs-ide-dev-signing.pfx` into **Trusted Root Certification Authorities** once and the SmartScreen publisher warning disappears. **Do not distribute this to the public** — anyone could sign malware with it.
+- **The bundled dev certificate** (`src-tauri\vs-ide-signing.pfx`, self-signed) — cryptographically valid and tamper-evident, and any machine that *trusts* it shows a clean publisher. That means the machines you control: import `src-tauri\vs-ide-signing.cer` into **Trusted Root Certification Authorities** (and **Trusted Publishers**) once and the SmartScreen publisher warning disappears. **Do not distribute this to the public** — anyone could sign malware with it.
 - **A real CA certificate** — the only thing that fixes SmartScreen for the public. Register an app at a code-signing CA (DigiCert, Sectigo, GlobalSign, AWS Private CA…), roughly $70–$400/year, and they verify your identity before issuing; allow a few days. An **OV** certificate is enough: Microsoft retired the old "EV gets instant SmartScreen reputation" behaviour in 2021, so EV no longer buys anything extra here. Note that reputation is per-file, so a freshly signed binary can still warn until enough machines have downloaded and run that exact build.
 
-Then: `npm run sign -- -Pfx C:\certs\mzsg.pfx` (it will prompt for the password).
+Then: `npm run sign -- -Pfx C:\certs\mzsg.pfx` (it will prompt for the password unless a password file is present).
+
+**Where the password lives.** It is **not** hardcoded any more. `sign-release.ps1` reads it from the gitignored `src-tauri\signing-password.txt`, and prompts you if that file is absent. The previous version defaulted to a literal that had also been committed, which meant anyone with a clone of this repo could produce a binary that appeared to come from you — so the cert was rotated and the default removed. The `.pfx` and the password file are both in `.gitignore`; back them up somewhere private, because **losing them means you can never sign another release.**
 
 ### Mark of the Web
 
@@ -290,10 +292,15 @@ Get-ChildItem src-tauri\target\release\bundle -Recurse -Filter *.sig
 ```
 
 > **Whoever holds `tauri.key` can sign an update this app will install.** Treat it
-> like a password: keep it out of git, out of shared folders, and back it up. The
-> dev key currently in the repo was generated with the password
-> `vs-ide-updater-dev` — rotate it (and the dev code-signing cert) before you
-> publish anything real.
+> like a password: keep it out of git, out of shared folders, and back it up.
+>
+> To be precise about what is and isn't exposed: `tauri.key` is gitignored and has
+> **never** been committed — only its public half (`tauri.key.pub`) is in history,
+> which is harmless. What *was* in history is the old code-signing `.pfx` (blob
+> `bb5bb63`, removed in `700688e` but still retrievable), which is why the
+> certificate and its password have been rotated. The updater key is unchanged, so
+> installs on 0.1.3/0.1.4 keep updating normally; rotating it would have forced
+> every existing install to download manually.
 
 Each update is a ~210 MB download, because the installer carries the offline
 WebView2 runtime. If that is too heavy, switching `webviewInstallMode` to
