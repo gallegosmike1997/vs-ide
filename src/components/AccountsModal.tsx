@@ -1,7 +1,7 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { ExternalLink, Loader2, LogOut, ShieldCheck, X } from "lucide-react";
 import {
-  PROVIDERS, getCreds, isConfigured, setCreds, signIn, signOut, useAccounts,
+  PROVIDERS, authRedirectUri, getCreds, isConfigured, openExternal, setCreds, signIn, signOut, useAccounts,
   type ProviderId,
 } from "../lib/accounts";
 import { isDesktop } from "../lib/workspace";
@@ -49,6 +49,10 @@ export default function AccountsModal({ open, onClose, onToast }: Props) {
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [credsOpen, setCredsOpen] = useState(false);
+  // The loopback URI this machine actually listens on, so the user registers
+  // the right thing instead of guessing a port.
+  const [redirectUri, setRedirectUri] = useState("");
+  useEffect(() => { if (open) void authRedirectUri().then(setRedirectUri); }, [open]);
 
   if (!open) return null;
 
@@ -81,6 +85,15 @@ export default function AccountsModal({ open, onClose, onToast }: Props) {
             Connect an identity to VS-IDE. Each provider needs your own OAuth app
             (paste the Client ID once, below) — VS-IDE never sees your password, only
             what you approve on the provider's own page.
+          </div>
+
+          <div className="card" style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 12, lineHeight: 1.5, borderColor: "var(--gold)" }}>
+            <ShieldCheck size={14} color="var(--gold)" style={{ flexShrink: 0, marginTop: 2 }} />
+            <span>
+              <b>You do not need any of these to use the AI features.</b> Those accounts are for
+              identity only. The assistant runs on <b>Puter</b> — Settings → LLM Connection →{" "}
+              <i>Sign in to Puter</i> — which needs no OAuth app, no Client ID and no API key.
+            </span>
           </div>
 
           <div className="acc-grid">
@@ -141,16 +154,28 @@ export default function AccountsModal({ open, onClose, onToast }: Props) {
                           value={creds.secret}
                           onChange={(e) => setCreds(p.id, creds.clientId, e.target.value)} />
                       )}
-                      <a className="btn btn-sm btn-ghost" href={p.consoleUrl} target="_blank" rel="noreferrer"
-                        title={"Open the " + p.label + " developer console"}>
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => void openExternal(p.consoleUrl)}
+                        title={"Open the " + p.label + " developer console to register an app"}
+                      >
                         <ExternalLink size={12} />
-                      </a>
+                      </button>
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => void openExternal(p.docsUrl)}
+                        title={p.label + " sign-in docs — how to register the app and add the redirect URI"}
+                      >
+                        <ShieldCheck size={12} />
+                      </button>
                     </div>
                   );
                 })}
                 <div className="acc-note">
-                  Register an app as a <b>Desktop / public client</b> and add
-                  <code> http://127.0.0.1/callback </code> (any port) as a redirect URI.
+                  Register an app as a <b>Desktop / public client</b> and add this exact
+                  redirect URI (the port is pinned, so it stays the same every time):
+                  <br />
+                  <code style={{ display: "block", marginTop: 4, userSelect: "all" }}>{redirectUri || "http://127.0.0.1:8977/callback"}</code>
                   Tokens stay in this app's local storage on this machine. Facebook
                   also needs the app secret because its token endpoint does not
                   support PKCE.

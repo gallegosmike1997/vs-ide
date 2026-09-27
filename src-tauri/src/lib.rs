@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 use std::io::Read;
+use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -436,28 +437,78 @@ struct AuthCallback {
     redirect: String,
 }
 
+/// Hands an http(s) URL to the OS default browser.
+///
+/// A Tauri webview never opens `<a target="_blank">` itself — the click is
+/// swallowed, so every outbound link in the UI has to come through here. The
+/// scheme is checked before shelling out: only http/https, never `file://` or a
+/// custom protocol handler, and never a URL that could break out of the
+/// `cmd /C start` command line.
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    let u = url.trim();
+    if !(u.starts_with("http://") || u.starts_with("https://")) {
+        return Err("Only http and https links can be opened.".into());
+    }
+    if u.contains(['\r', '\n', '"']) {
+        return Err("That link is not a valid URL.".into());
+    }
+    let opened = if cfg!(target_os = "windows") {
+        Command::new("cmd").args(["/C", "start", "", u]).spawn().is_ok()
+    } else if cfg!(target_os = "macos") {
+        Command::new("open").arg(u).spawn().is_ok()
+    } else {
+        Command::new("xdg-open").arg(u).spawn().is_ok()
+    };
+    if opened { Ok(()) } else { Err("Could not open your browser.".into()) }
+}
+
+/// The loopback port the sign-in server tries FIRST.
+///
+/// Pinning it matters: the UI prints this exact redirect URI for the user to
+/// register, so the app has to keep hitting the same port. An ephemeral port
+/// would change on every launch and no registered redirect would ever match.
+const AUTH_PORT: u16 = 8977;
+
+/// Bind the sign-in listener: the pinned port first, any free port as a fallback
+/// (returns the port actually used, since the two can differ).
+fn bind_auth_listener() -> Option<(TcpListener, u16)> {
+    if let Ok(l) = TcpListener::bind(("127.0.0.1", AUTH_PORT)) {
+        return Some((l, AUTH_PORT));
+    }
+    let l = TcpListener::bind(("127.0.0.1", 0)).ok()?;
+    let port = l.local_addr().ok()?.port();
+    Some((l, port))
+}
+
+/// The redirect URI to register with the provider, known BEFORE signing in so
+/// the credentials panel can show it instead of vague instructions.
+#[tauri::command]
+fn auth_redirect_uri(redirect_path: Option<String>) -> String {
+    let want = redirect_path.unwrap_or_else(|| "callback".to_string());
+    let want = want.trim_start_matches('/');
+    let want = if want.is_empty() { "callback" } else { want };
+    match bind_auth_listener() {
+        Some((_l, port)) => format!("http://127.0.0.1:{port}/{want}"),
+        // Nothing bindable at all — the fallback range, so the user still has
+        // something concrete to register rather than a blank.
+        None => format!("http://127.0.0.1:1/{want}"),
+    }
+}
+
 /// Opens `url` in the user's browser and blocks until the provider redirects
 /// back to `127.0.0.1:<port>/<redirect_path>`.
 #[tauri::command]
 fn auth_begin(url: String, redirect_path: String, timeout_secs: Option<u64>) -> Result<AuthCallback, String> {
     use std::io::{Read, Write};
-    use std::net::TcpListener;
 
     let want_raw = redirect_path.trim_start_matches('/');
     let want = if want_raw.is_empty() { "callback".to_string() } else { want_raw.to_string() };
     let deadline = std::time::Duration::from_secs(timeout_secs.unwrap_or(180).clamp(10, 900));
 
-    // Bind a free loopback port (retry in case something else grabbed it).
-    let mut bound = None;
-    let mut port = 0u16;
-    for _ in 0..20 {
-        if let Ok(l) = TcpListener::bind(("127.0.0.1", 0)) {
-            port = l.local_addr().map(|a| a.port()).unwrap_or(0);
-            bound = Some(l);
-            break;
-        }
-    }
-    let listener = bound.ok_or_else(|| "Could not open a loopback port for sign-in.".to_string())?;
+    // Pinned port first so the redirect URI shown in the UI is the real one.
+    let (listener, port) =
+        bind_auth_listener().ok_or_else(|| "Could not open a loopback port for sign-in.".to_string())?;
 
     // Pin the redirect URI to the port we actually got, then open the browser.
     let redirect_uri = format!("http://127.0.0.1:{port}/{want}");
@@ -1169,6 +1220,8 @@ pub fn run() {
             git_remote_add,
             git_diff,
             git_gutter,
+            open_external,
+            auth_redirect_uri,
             auth_begin
         ])
         .run(tauri::generate_context!())

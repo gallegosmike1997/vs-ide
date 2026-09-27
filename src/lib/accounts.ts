@@ -17,6 +17,17 @@ import { useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { isDesktop } from "./workspace";
 import { runShell } from "./runner";
+import { authRedirectUri, openExternal } from "./openExternal";
+
+/**
+ * Opens an http(s) link in the user's real browser.
+ *
+ * A Tauri webview never opens `<a target="_blank">` on its own — the click is
+ * swallowed, so links have to go through the Rust `open_external` command. This
+ * wrapper is the one place that knows the difference, and it still honours a
+ * normal browser tab when the app is served over http (npm run dev).
+ */
+export { openExternal, authRedirectUri };
 
 export type ProviderId = "google" | "github" | "microsoft" | "facebook";
 
